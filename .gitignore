@@ -1,5 +1,0 @@
-*.pyc
-*.csv
-*.pickle
-.ipynb_checkpoints/*
-.gitignore
