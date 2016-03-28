@@ -682,7 +682,7 @@ class MyXGBoost(MyClassifier):
         self._xgb = None
 
     def update_params(self, updates):
-        self._params = self._params.update(updates)
+        self._params.update(updates)
         if 'num_round' in updates:
             self._num_round = updates['num_round']
             del self._params['num_round']
@@ -774,9 +774,11 @@ def cv_grid_search(myclassifier, param_grid, Xtrain, ytrain, nfolds=5, randstate
 
         param_set_list.append(param_set)
 
-        myclassifier.update(param_set)
+        print param_set
+        myclassifier.update_params(param_set)
         cur_scores = cv_score(myclassifier, Xtrain, ytrain, nfolds, randstate, score_func)  
         cur_mean_score = np.mean(cur_scores)
+        print cur_mean_score
 
         mean_score_list.append(cur_mean_score)
 
@@ -792,7 +794,46 @@ def cv_grid_search(myclassifier, param_grid, Xtrain, ytrain, nfolds=5, randstate
 
     return best_param_set, best_mean_score, param_set_list, mean_score_list
 
+def strat_cv_grid_search(myclassifier, param_grid, Xtrain, ytrain, nfolds=5, randstate=SEED, score_func=roc_auc_score, criterion = 'max'):
+    # can be adapted to use sklearn CVGridSearch
+    # org_params = myclassifier._params
+    # org_param_grid = dict{}
+    # for key, value in org_params:
+    #   org_param_grid[key] = [value]
+    # org_param_grid.update(param_grid)
+    param_names = param_grid.keys()
+    param_pools = param_grid.values()
+    num_param = len(param_names)
+    param_set_list = []
+    mean_score_list = []
+    best_param_set = None
+    best_mean_score = None
+    for param_valuelist in itertools.product(*param_pools):
+        param_set = dict()
+        for k in xrange(num_param):
+            param_set[param_names[k]] = param_valuelist[k]
 
+        param_set_list.append(param_set)
+
+        print param_set
+        myclassifier.update_params(param_set)
+        cur_scores = strat_cv_score(myclassifier, Xtrain, ytrain, nfolds, randstate, score_func)  
+        cur_mean_score = np.mean(cur_scores)
+        print cur_mean_score
+
+        mean_score_list.append(cur_mean_score)
+
+        if not best_paramset:
+            best_param_set = param_set
+            best_mean_score = cur_mean_score
+        elif criterion == 'max' and cur_mean_score > best_mean_score:
+            best_param_set = param_set
+            best_mean_score = cur_mean_score
+        elif criterion == 'min' and cur_mean_score < best_mean_score:
+            best_param_set = param_set
+            best_mean_score = cur_mean_score
+
+    return best_param_set, best_mean_score, param_set_list, mean_score_list
 
 # define model as a combination of feature and classifier
 # class MyMdoel(object):
