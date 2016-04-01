@@ -526,13 +526,17 @@ def np_combine_rare(Xtrain, Xtest, col_list = list(), rare_line=1):
 
     if not col_list :
         col_list = range(Xtrain.shape[1])
+        check_int == True
+    else:
+        check_int = False
 
     n_train = Xtrain.shape[0]
     for col in col_list:
         col_data_train = Xtrain[:, col]
         col_data_test = Xtest[:, col]
         col_data = np.hstack((col_data_train, col_data_test))
-        if issubclass(col_data.dtype.type, np.integer):
+        # print col_data[0]
+        if issubclass(col_data.dtype.type, np.integer) or (not check_int):
             le = preprocessing.LabelEncoder()
             le.fit(col_data)
             col_data = le.transform(col_data)
@@ -541,11 +545,12 @@ def np_combine_rare(Xtrain, Xtest, col_list = list(), rare_line=1):
             rare_cats = np.argwhere(counts <= rare_line)
             rare_cats = rare_cats.reshape(rare_cats.shape[0])
             rare_positions = [np.argwhere(col_data == rare_cat)[0,0] for rare_cat in rare_cats]
+            # print len(rare_positions)
             col_data[rare_positions] = max_label+1
             Xtrain[:, col] = col_data[:n_train]
             Xtest[:, col] = col_data[n_train:]
         else:
-            print 'col:{0:s} not integer'.format(col)
+            print 'col:{0:d} not integer'.format(col)
 
 # perform in place numerical transform on selected col, here X is numpy matrix, currently do not support sparse matrix
 def np_numeric_transform(Xtrain, Xtest, col_list = list(), operation='log', standardize=False):
@@ -778,11 +783,11 @@ def cv_grid_search(myclassifier, param_grid, Xtrain, ytrain, nfolds=5, randstate
         myclassifier.update_params(param_set)
         cur_scores = cv_score(myclassifier, Xtrain, ytrain, nfolds, randstate, score_func)  
         cur_mean_score = np.mean(cur_scores)
-        print cur_mean_score
+        print cur_mean_score, np.std(cur_scores)
 
         mean_score_list.append(cur_mean_score)
 
-        if not best_paramset:
+        if not best_param_set:
             best_param_set = param_set
             best_mean_score = cur_mean_score
         elif criterion == 'max' and cur_mean_score > best_mean_score:
@@ -819,11 +824,11 @@ def strat_cv_grid_search(myclassifier, param_grid, Xtrain, ytrain, nfolds=5, ran
         myclassifier.update_params(param_set)
         cur_scores = strat_cv_score(myclassifier, Xtrain, ytrain, nfolds, randstate, score_func)  
         cur_mean_score = np.mean(cur_scores)
-        print cur_mean_score
+        print cur_mean_score, np.std(cur_scores)
 
         mean_score_list.append(cur_mean_score)
 
-        if not best_paramset:
+        if not best_param_set:
             best_param_set = param_set
             best_mean_score = cur_mean_score
         elif criterion == 'max' and cur_mean_score > best_mean_score:
