@@ -5,6 +5,7 @@ import numpy as np
 from pandas.core.series import Series
 import os
 from sklearn import preprocessing
+import scipy
 
 
 SEED = 1234
@@ -22,8 +23,9 @@ def show_basic_statics(df, col_list = list()):
         max_elem = np.amax(col)
         mean = np.mean(col)
         std = np.std(col)
+        mode = scipy.stats.mstats.mode(col)
         print 'Col:{0:s}, dtype:{1:s}'.format(colname, col.dtype)
-        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std
+        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std, 'mode:', mode
         print
 
 def remove_constant_col(df, col_list = list()):
@@ -96,14 +98,17 @@ def remove_identical_columns(df, col_list = list()):
 def check_two_columns(df, col1, col2):
     print 'Checking {0:s} and {1:s}'.format(col1, col2)
 
-    c1_c2_list = df[[col1, col2]].values.tolist()
-    c1_c2_tuple = [tuple(c1_c2) for c1_c2 in c1_c2_list]
+    # c1_c2_list = df[[col1, col2]].values.tolist()
+    # c1_c2_tuple = [tuple(c1_c2) for c1_c2 in c1_c2_list]
+    c1_c2_tuple = zip(df[col1].values.astype(float), df[col2].values.astype(float))
 
     num_unique_c1_c2 = len(set(c1_c2_tuple))
     num_unique_c1 = np.unique(df[col1].values).shape[0]
     num_unique_c2 = np.unique(df[col2].values).shape[0]
 
-    print '{0:s}:'.format(col1), num_unique_c1, '{0:s}:'.format(col2), num_unique_c2, 'comb:', num_unique_c1_c2
+    print '{0:s}:'.format(col1), num_unique_c1, '{0:s}:'.format(col2), num_unique_c2, 'comb:', num_unique_c1_c2,'\n'
+
+    return float(num_unique_c1_c2)/ (num_unique_c1 * num_unique_c2)
 
 def merge_two_cat_columns(df, col1, col2, col_new=None, remove='none', hasher=None):
     if not col_new:
@@ -526,7 +531,7 @@ def np_combine_rare(Xtrain, Xtest, col_list = list(), rare_line=1):
 
     if not col_list :
         col_list = range(Xtrain.shape[1])
-        check_int == True
+        check_int = True
     else:
         check_int = False
 
@@ -673,6 +678,25 @@ class MyExtraTree(MyClassifier):
 
     def predict_proba(self, Xtest, option = None):
         return self._extree.predict_proba(Xtest)[:, 1]
+
+from sklearn.ensemble import RandomForestClassifier
+class MyRandomForest(MyClassifier):
+    def __init__(self, params=dict()):
+        self._params = params
+        self._rf = RandomForestClassifier(**(self._params))
+
+    def update_params(self, updates):
+        self._params.update(updates)
+        self._rf = RandomForestClassifier(**(self._params))
+
+    def fit(self, Xtrain, ytrain):
+        self._rf.fit(Xtrain, ytrain)
+
+    # def predict(self, Xtest, option = None):
+    #   return self._extree.predict(Xtest)
+
+    def predict_proba(self, Xtest, option = None):
+        return self._rf.predict_proba(Xtest)[:, 1]
 
 # xgboost
 import xgboost as xgb
@@ -897,7 +921,6 @@ class MyFeatureSet(object):
         self._file_path = file_path
 
 
-import scipy
 # concatenate feature set in feature set list, sparsify if one of the feature set is sparse
 def concat_feature_set(myfset_list, sparsify = False):  
     if not sparsify:
@@ -1022,6 +1045,7 @@ def fset_check_two_columns(myfset, col1, col2):
 
     c1_data = np.hstack((c1_data_train, c1_data_test))
     c2_data = np.hstack((c2_data_train, c2_data_test))
+
     c1_c2_tuple = zip(c1_data, c2_data)
 
     num_unique_c1_c2 = len(set(c1_c2_tuple))
@@ -1103,6 +1127,72 @@ def fset_merge_three_cat_columns(myfset, col_triple, hasher=None):
     col_new_data_test = col_new_data[n_train:]
 
     return col_new_data_train, col_new_data_test
+
+def fset_merge_multiple_cat_columns(myfset, col_multiple, hasher=None):
+    n_col = len(col_multiple)
+    if n_col <= 1:
+        return
+
+    col_list = list(col_multiple)
+    col_ind = list(np.array(myfset.find_list)[col_list])
+
+    X_merge = np.vstack((myfset.Xtrain[:,col_ind], myfset.Xtest[:, col_ind]))
+
+    cm_data = X_merge[:, 0]
+
+    for col_t in xrange(1, n_col):
+        ct_data = X_merge[:, col_t]
+
+        cm_ct_tuple = zip(cm_data, ct_data)
+        cm_ct_set = set(cm_ct_tuple)
+
+        cm_ct_tuple_dict = dict()
+        i = 0
+        for cm_ct in cm_ct_set:
+            cm_ct_tuple_dict[cm_ct] = i
+            i+=1
+
+        cm_data = np.zeros(cm_data.shape[0], np.int)
+        for i in xrange(cm_data.shape[0]):
+            cm_data[i] = cm_ct_tuple_dict[cm_ct_tuple[i]]
+
+    if hasher:
+        cm_data = hasher(cm_data)
+
+    n_train = myfset.Xtrain.shape[0]
+    col_new_data_train = cm_data[:n_train]
+    col_new_data_test = cm_data[n_train:]
+
+    return col_new_data_train, col_new_data_test
+
+
+# def fset_relabel_integer_col(df, col_list = list()):
+#     if not col_list:
+#         col_list = list(df.columns.values)
+
+#     for col_name in col_list:
+#         col_data = df[col_name].values
+#         if issubclass(col_data.dtype.type, np.integer):
+#                 le = preprocessing.LabelEncoder()
+#                 le.fit(col_data)
+#                 col_data = le.transform(col_data)
+#                 df[col_name] = Series(col_data, index = df.index)
+
+# def fset_relabel_float_col(df, col_list = list(), rthresh = 0.1, atrhesh = 30):
+#     if not col_list:
+#         col_list = list(df.columns.values)
+
+#     for col_name in col_list:
+#         col_data = df[col_name].values
+#         if issubclass(col_data.dtype.type, np.float):
+#             nnz = np.nonzero(col_data)[0].shape[0]
+#             n_unique = np.unique(col_data).shape[0]
+#             rate = float(n_unique)/nnz
+#             if rate < rthresh or n_unique < atrhesh:
+#                 le = preprocessing.LabelEncoder()
+#                 le.fit(col_data)
+#                 col_data = le.transform(col_data)
+#                 df[col_name] = Series(col_data, index = df.index)
 
 
 def main():
