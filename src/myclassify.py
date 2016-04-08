@@ -6,7 +6,7 @@ from pandas.core.series import Series
 import os
 from sklearn import preprocessing
 import scipy
-
+import re
 
 SEED = 1234
 
@@ -605,6 +605,13 @@ def np_numeric_transform(Xtrain, Xtest, col_list = list(), operation='log', stan
 from sklearn.cross_validation import KFold
 from sklearn.cross_validation import StratifiedKFold
 from sklearn.metrics import roc_auc_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.ensemble import ExtraTreesClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
+import xgboost as xgb
+import matplotlib.pyplot as plt
 # template class mostly just list methods to be implemented
 class MyClassifier(object):
     def __init__(self, params):
@@ -619,7 +626,6 @@ class MyClassifier(object):
         raise NotImplementedError
 
 # logistic regression
-from sklearn.linear_model import LogisticRegression
 class MyLogisticReg(MyClassifier):
     def __init__(self, params=dict()):
         self._params = params
@@ -640,7 +646,6 @@ class MyLogisticReg(MyClassifier):
 
 
 # k-nearest neighbor
-from sklearn.neighbors import KNeighborsClassifier
 class MyKnn(MyClassifier):
     def __init__(self, params=dict()):
         self._params = params
@@ -660,7 +665,6 @@ class MyKnn(MyClassifier):
         return self._knn.predict_proba(Xtest)[:, 1]
 
 # extremelyrandomforest
-from sklearn.ensemble import ExtraTreesClassifier
 class MyExtraTree(MyClassifier):
     def __init__(self, params=dict()):
         self._params = params
@@ -679,7 +683,41 @@ class MyExtraTree(MyClassifier):
     def predict_proba(self, Xtest, option = None):
         return self._extree.predict_proba(Xtest)[:, 1]
 
-from sklearn.ensemble import RandomForestClassifier
+    def plt_feature_importance(self, fname_list, f_range = list()):
+        importances = self._extree.feature_importances_
+
+        std = np.std([tree.feature_importances_ for tree in self._extree.estimators_], axis=0)
+        indices = np.argsort(importances)[::-1]
+
+        if not f_range:
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        plt.figure()
+        plt.title("Extra Tree Feature importances")
+        plt.barh(range(n_f), importances[indices[f_range]],
+               color="b", xerr=std[indices[f_range]], ecolor='k',align="center")
+        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.ylim([-1, n_f])
+        plt.show()
+
+
+    def list_feature_importance(self, fname_list, f_range = list()):
+        importances = self._extree.feature_importances_
+        indices = np.argsort(importances)[::-1]
+
+        print 'Extra tree feature ranking:'
+
+        if not f_range :
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        for i in range(n_f):
+            f = f_range[i]
+            print '{0:d}. feature[{1:d}]  {2:s}  ({3:f})'.format(f + 1, indices[f], fname_list[indices[f]], importances[indices[f]])
+
 class MyRandomForest(MyClassifier):
     def __init__(self, params=dict()):
         self._params = params
@@ -698,8 +736,95 @@ class MyRandomForest(MyClassifier):
     def predict_proba(self, Xtest, option = None):
         return self._rf.predict_proba(Xtest)[:, 1]
 
+    def plt_feature_importance(self, fname_list, f_range = list()):
+        importances = self._rf.feature_importances_
+
+        std = np.std([tree.feature_importances_ for tree in self._rf.estimators_], axis=0)
+        indices = np.argsort(importances)[::-1]
+
+        if not f_range:
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        plt.figure()
+        plt.title("Random Forest Feature importances")
+        plt.barh(range(n_f), importances[indices[f_range]],
+               color="b", xerr=std[indices[f_range]], ecolor='k',align="center")
+        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.ylim([-1, n_f])
+        plt.show()
+
+
+    def list_feature_importance(self, fname_list, f_range = list()):
+        importances = self._rf.feature_importances_
+        indices = np.argsort(importances)[::-1]
+
+        print 'Random forest feature ranking:'
+
+        if not f_range :
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        for i in range(n_f):
+            f = f_range[i]
+            print '{0:d}. feature[{1:d}]  {2:s}  ({3:f})'.format(f + 1, indices[f], fname_list[indices[f]], importances[indices[f]])
+
+# sklearn gradient boost
+class MyGradientBoost(MyClassifier):
+    def __init__(self, params=dict()):
+        self._params = params
+        self._gb = GradientBoostingClassifier(**(self._params))
+
+    def update_params(self, updates):
+        self._params.update(updates)
+        self._gb = GradientBoostingClassifier(**(self._params))
+
+    def fit(self, Xtrain, ytrain):
+        self._gb.fit(Xtrain, ytrain)
+
+    # def predict(self, Xtest, option = None):
+    #   return self._extree.predict(Xtest)
+
+    def predict_proba(self, Xtest, option = None):
+        return self._gb.predict_proba(Xtest)[:, 1]
+
+    def plt_feature_importance(self, fname_list, f_range = list()):
+        importances = self._gb.feature_importances_
+
+        std = np.std([tree[0].feature_importances_ for tree in self._gb.estimators_], axis=0)
+        indices = np.argsort(importances)[::-1]
+
+        if not f_range:
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        plt.figure()
+        plt.title("Gradient Boost Feature importances")
+        plt.barh(range(n_f), importances[indices[f_range]],
+               color="b", xerr=std[indices[f_range]], ecolor='k',align="center")
+        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.ylim([-1, n_f])
+        plt.show()    
+
+    def list_feature_importance(self, fname_list, f_range = list()):
+        importances = self._gb.feature_importances_
+        indices = np.argsort(importances)[::-1]
+
+        print 'Gradient Boost feature ranking:'
+
+        if not f_range :
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        for i in range(n_f):
+            f = f_range[i]
+            print '{0:d}. feature[{1:d}]  {2:s}  ({3:f})'.format(f + 1, indices[f], fname_list[indices[f]], importances[indices[f]])
+
 # xgboost
-import xgboost as xgb
 class MyXGBoost(MyClassifier):
     def __init__(self, params=dict()):
         self._params = params
@@ -730,6 +855,49 @@ class MyXGBoost(MyClassifier):
         else:
             return self._xgb.predict(dtest, ntree_limit=option['ntree_limit'])
 
+    def plt_feature_importance(self, fname_list, f_range = list()):
+        importances = np.array(self._xgb.get_fscore().values())
+        features = np.array([ int(re.search(r'f(\d+)', f).group(1))  for f in self._xgb.get_fscore().keys()])
+
+        tmp_indices =np.argsort(importances)[::-1]
+
+        indices = features[tmp_indices]
+
+        importances = importances[tmp_indices]
+
+        if not f_range :
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        plt.figure()
+        plt.title("Xgboost Feature importances")
+        plt.barh(range(n_f), importances[f_range],
+               color="b", align="center")
+        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.ylim([-1, n_f])
+        plt.show()
+
+    def list_feature_importance(self, fname_list, f_range = list()):
+        importances = np.array(self._xgb.get_fscore().values())
+        features = np.array([ int(re.search(r'f(\d+)', f).group(1))  for f in self._xgb.get_fscore().keys()])
+
+        tmp_indices =np.argsort(importances)[::-1]
+
+        indices = features[tmp_indices]
+
+        importances = importances[tmp_indices]
+
+        if not f_range :
+            f_range = range(indices.shape[0])
+
+        n_f = len(f_range)
+
+        print 'Xgboost feature ranking:'
+
+        for i in range(n_f):
+            f = f_range[i]
+            print '{0:d}. feature[{1:d}]  {2:s}  ({3:f})'.format(f + 1, indices[f], fname_list[indices[f]], importances[f])
 
 # cv_score related functions
 
