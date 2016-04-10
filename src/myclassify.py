@@ -1074,9 +1074,9 @@ class MyFeatureSet(object):
 
         n_feature = len(self.fname_list)
         if isinstance(input_f_list[0], str):
-            f_list = [self.fname_list.index(f) for f in self.fname_list if f in input_f_list]
+            f_list = [self.fname_list.index(f) for f in input_f_list if f in self.fname_list ]
         elif isinstance(input_f_list[0], int):
-            f_list = [ind for ind in range(n_feature) if ind in input_f_list]
+            f_list = [ind for ind in input_f_list if ind in range(n_feature)]
         else:
             print 'Unsupported indexing'
             return None
@@ -1267,8 +1267,6 @@ class MyFeatureSet(object):
             print 'Unsupported drop list'
             return None
 
-        print keep_list
-
         return self.__getitem__(keep_list)
 
     def inplace_combine_rare(self, input_col_list = list(), prefix = 'cr_', rare_line = 1):
@@ -1362,8 +1360,8 @@ def concat_fsets(myfset_list, sparsify = False):
             newftype_list = myfset.ftype_list
             newfind_list = myfset.find_list
             
-            newXtrain = myfset.Xtrain.copy
-            newXtest = myfset.Xtest.copy
+            newXtrain = myfset.Xtrain.copy()
+            newXtest = myfset.Xtest.copy()
 
         else:
             newfname_list = newfname_list + myfset.fname_list
@@ -1579,7 +1577,7 @@ def fset_label_encode(myfset, input_col_list = list(), prefix = 'le_'):
     n_train = myfset.Xtrain.shape[0]
     n_test = myfset.Xtest.shape[0]
     for col in col_list:
-        if (myfset.find_list[col+1] - myfset.find_list[col] > 1):
+        if (myfset.find_list[col+1] - myfset.find_list[col]) > 1:
             continue
 
         ind = myfset.find_list[col]
@@ -1960,6 +1958,10 @@ def fset_merge_multiple_cat_columns(myfset, input_col_multiple, hasher=None):
         col_multiple = [col for col in input_col_multiple if col in range(n_feature)]
     else:
         print 'indexing not supported'
+        return
+
+    if len(col_multiple) < len(input_col_multiple):
+        print 'some feature not found'
         return
 
     if scipy.sparse.issparse(myfset.Xtrain):
