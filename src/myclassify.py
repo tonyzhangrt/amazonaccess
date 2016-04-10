@@ -1481,7 +1481,7 @@ def fset_onehot_encode(myfset, input_col_list = list(), prefix = 'oh_'):
         else:
             ind = new_fset.find_list[col]
             if not issubclass(new_fset.ftype_list[col], np.integer):
-                if chech_int:
+                if check_int:
                     unencode_col.append(col)
                     unencode_ind.append(ind)
                     continue
@@ -1518,16 +1518,17 @@ def fset_onehot_encode(myfset, input_col_list = list(), prefix = 'oh_'):
         encode_Xtrain = encode_Xtrain.toarray()
         encode_Xtest = encode_Xtest.toarray()
 
-    unencode_Xtrain = new_fset.Xtrain[:, unencode_ind]
-    unencode_Xtest = new_fset.Xtrain[:, unencode_ind]
-
     oh_encoder = preprocessing.OneHotEncoder()
     oh_encoder.fit(np.vstack((encode_Xtrain, encode_Xtest)))
     new_fset.Xtrain = oh_encoder.transform(encode_Xtrain).tocsr()  
     new_fset.Xtest = oh_encoder.transform(encode_Xtest).tocsr()
     
-    new_fset.Xtrain = scipy.sparse.hstack((new_fset.Xtrain, unencode_Xtrain)).tocsr()
-    new_fset.Xtest = scipy.sparse.hstack((new_fset.Xtest, unencode_Xtest)).tocsr()
+
+    if len(unencode_ind) > 0:
+        unencode_Xtrain = new_fset.Xtrain[:, unencode_ind]
+        unencode_Xtest = new_fset.Xtrain[:, unencode_ind]
+        new_fset.Xtrain = scipy.sparse.hstack((new_fset.Xtrain, unencode_Xtrain)).tocsr()
+        new_fset.Xtest = scipy.sparse.hstack((new_fset.Xtest, unencode_Xtest)).tocsr()
 
     encode_fname_list = [prefix + new_fset.fname_list[col] for col in encode_col]
     unencode_fname_list = [new_fset.fname_list[col] for col in unencode_col]
