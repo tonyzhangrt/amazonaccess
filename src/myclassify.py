@@ -54,7 +54,7 @@ def relabel_integer_col(df, col_list = list()):
                 col_data = le.transform(col_data)
                 df[col_name] = Series(col_data, index = df.index)
 
-def relabel_float_col(df, col_list = list(), rthresh = 0.1, atrhesh = 30):
+def relabel_float_col(df, col_list = list(), rthresh = 0.1, athresh = 30):
     if not col_list:
         col_list = list(df.columns.values)
 
@@ -341,7 +341,7 @@ class MyCountTable(object):
 
         return col_new
 
-    def df_one_degree_counts(df, col_i, file_path = None):
+    def df_one_degree_counts(self, df, col_i, file_path = None):
         self._df_get_count_tables(df, 'one', [col_i], file_path)
 
         i_table = one_count_table[col_i]
@@ -597,8 +597,6 @@ def np_numeric_transform(Xtrain, Xtest, col_list = list(), operation='log', stan
             Xtest[:, col] = 1./col_std * (Xtest[:, col] - col_mean)
 
 
-
-
 # we consider model as a combination of feature and classifier
 # classifier need to implement several methods
 # many parts of the implementation only suitable for binary classification
@@ -689,6 +687,8 @@ class MyExtraTree(MyClassifier):
         std = np.std([tree.feature_importances_ for tree in self._extree.estimators_], axis=0)
         indices = np.argsort(importances)[::-1]
 
+        fname_array = np.array(fname_list)
+
         if not f_range:
             f_range = range(indices.shape[0])
 
@@ -698,7 +698,7 @@ class MyExtraTree(MyClassifier):
         plt.title("Extra Tree Feature importances")
         plt.barh(range(n_f), importances[indices[f_range]],
                color="b", xerr=std[indices[f_range]], ecolor='k',align="center")
-        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.yticks(range(n_f), fname_array[indices[f_range]])
         plt.ylim([-1, n_f])
         plt.show()
 
@@ -742,6 +742,8 @@ class MyRandomForest(MyClassifier):
         std = np.std([tree.feature_importances_ for tree in self._rf.estimators_], axis=0)
         indices = np.argsort(importances)[::-1]
 
+        fname_array = np.array(fname_list)
+
         if not f_range:
             f_range = range(indices.shape[0])
 
@@ -751,7 +753,7 @@ class MyRandomForest(MyClassifier):
         plt.title("Random Forest Feature importances")
         plt.barh(range(n_f), importances[indices[f_range]],
                color="b", xerr=std[indices[f_range]], ecolor='k',align="center")
-        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.yticks(range(n_f), fname_array[indices[f_range]])
         plt.ylim([-1, n_f])
         plt.show()
 
@@ -796,6 +798,8 @@ class MyGradientBoost(MyClassifier):
         std = np.std([tree[0].feature_importances_ for tree in self._gb.estimators_], axis=0)
         indices = np.argsort(importances)[::-1]
 
+        fname_array = np.array(fname_list)
+
         if not f_range:
             f_range = range(indices.shape[0])
 
@@ -805,7 +809,7 @@ class MyGradientBoost(MyClassifier):
         plt.title("Gradient Boost Feature importances")
         plt.barh(range(n_f), importances[indices[f_range]],
                color="b", xerr=std[indices[f_range]], ecolor='k',align="center")
-        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.yticks(range(n_f), fname_array[indices[f_range]])
         plt.ylim([-1, n_f])
         plt.show()    
 
@@ -833,6 +837,11 @@ class MyXGBoost(MyClassifier):
             del self._params['num_round']
         else:
              self._num_round = None
+        # if 'verbose' in params:
+        #     self._verbose = params['verbose']
+        #     del self._p
+        # else:
+        #     self._verbose = 2
         self._xgb = None
 
     def update_params(self, updates):
@@ -863,7 +872,11 @@ class MyXGBoost(MyClassifier):
 
         indices = features[tmp_indices]
 
+        fname_array = np.array(fname_list)
+
         importances = importances[tmp_indices]
+
+        importances = importances / np.sum(importances)
 
         if not f_range :
             f_range = range(indices.shape[0])
@@ -874,7 +887,7 @@ class MyXGBoost(MyClassifier):
         plt.title("Xgboost Feature importances")
         plt.barh(range(n_f), importances[f_range],
                color="b", align="center")
-        plt.yticks(range(n_f), fname_list[indices[f_range]])
+        plt.yticks(range(n_f), fname_array[indices[f_range]])
         plt.ylim([-1, n_f])
         plt.show()
 
@@ -887,6 +900,8 @@ class MyXGBoost(MyClassifier):
         indices = features[tmp_indices]
 
         importances = importances[tmp_indices]
+
+        importances = importances / np.sum(importances)
 
         if not f_range :
             f_range = range(indices.shape[0])
@@ -1046,26 +1061,158 @@ class MyFeatureSet(object):
     # self.set_name = None
     def __init__(self):
         self.fname_list = list()
+        self.ftype_list = list()
         self.find_list = list()
         self.Xtrain = None
         self.Xtest = None
         self._file_path = None
 
+    # support using fname or index to fetch item
+    def __getitem__(self, input_f_list):
+        if not hasattr(input_f_list, '__iter__'):
+            input_f_list = [input_f_list]
 
-    def generate_feature_set(self, file_path):
-        raise NotImplementedError
+        n_feature = len(self.fname_list)
+        if isinstance(input_f_list[0], str):
+            f_list = [self.fname_list.index(f) for f in self.fname_list if f in input_f_list]
+        elif isinstance(input_f_list[0], int):
+            f_list = [ind for ind in range(n_feature) if ind in input_f_list]
+        else:
+            print 'Unsupported indexing'
+            return None
 
-    def fetch_feature_set(self, file_path = None):
-        if (not self.Xtrain) or (not self.Xtrain):
-            if self._file_path:
-                self.load_feature_set(self._file_path)
-            elif file_path:
-                self.load_feature_set(file_path) 
+        if scipy.sparse.issparse(self.Xtrain):
+            sparsify = True
+        else:
+            sparsify = False
+
+        if sparsify:
+            hstack_func = scipy.sparse.hstack
+        else:
+            hstack_func = np.hstack
+
+        n_item = len(f_list)
+
+        new_fset = MyFeatureSet()
+        new_fset.fname_list = [self.fname_list[f] for f in f_list]
+        new_fset.ftype_list = [self.ftype_list[f] for f in f_list]
+
+        new_fset.find_list.append(0)
+        for i in xrange(n_item):
+            f = f_list[i]
+            find_last = new_fset.find_list[-1]
+            find_low = self.find_list[f] 
+            find_up = self.find_list[f+1]
+            new_fset.find_list.append(find_last + find_up - find_low)
+            if i == 0 :
+                new_fset.Xtrain = self.Xtrain[:, find_low:find_up ]
+                new_fset.Xtest = self.Xtest[:, find_low:find_up ]
             else:
-                # print 'Feature set not available.'
-                self.generate_feature_set(file_path)
+                new_fset.Xtrain = hstack_func((new_fset.Xtrain, self.Xtrain[:, find_low:find_up ]))
+                new_fset.Xtest = hstack_func((new_fset.Xtest, self.Xtest[:, find_low:find_up ]))
 
-        return self.Xtrain, self.Xtest
+        if sparsify:
+            new_fset.Xtrain.tocsr()
+            new_fset.Xtest.tocsr()
+
+        return new_fset
+
+    # only support item by item setting, can use index or feature name to access
+    def __setitem__(self, input_f, X_tuple):
+        if len(X_tuple) != 2:
+            print 'X input not equal two'
+            return
+
+        f_train, f_test = X_tuple
+        if len(f_train.shape) == 1:
+            f_train = f_train.reshape((f_train.shape[0], 1))
+        if len(f_test.shape) == 1:
+            f_test = f_test.reshape((f_test.shape[0], 1))
+
+        if f_train.shape[1] != f_test.shape[1]:
+            print 'train and test size not matching'
+            return
+
+        # if this is an empty feature set, if input fname is not str convert to str
+        if self.Xtrain == None and self.Xtest == None:
+            self.Xtrain = f_train
+            self.Xtest = f_test
+            self.fname_list.append(str(input_f))
+            self.find_list.append(0)
+            self.find_list.append(f_train.shape[1])
+            self.ftype_list.append(f_train.dtype.type)
+            return
+
+        # if not empty need to check if it is compatible with the stored data
+        if f_train.shape[0] != self.Xtrain.shape[0]:
+            print 'train size not mathcing'
+            return
+        if f_test.shape[0] != self.Xtest.shape[0]:
+            print 'test size not matching'
+            return
+
+        n_feature = len(self.fname_list)
+
+        if isinstance(input_f, str):
+            if input_f in self.fname_list:
+                f_id = self.fname_list.index(input_f)
+                f_name = input_f
+            else:
+                f_id = -1
+                f_name = input_f
+        elif isinstance(input_f, int):
+            if input_f in range(n_feature):
+                f_id = input_f
+                f_name = self.fname_list[f_id]
+            elif (input_f + n_feature) in range(n_feature):
+                f_id = input_f + n_feature
+                f_name = self.fname_list[f_id]
+            else:
+                print 'index out of range'
+                return
+        else:
+            print 'unsupported indexing'
+            return
+
+        if f_id in range(n_feature):
+            find_low = self.find_list[f_id]
+            find_up = self.find_list[f_id + 1]
+            self.Xtrain[:, find_low:find_up ] = f_train
+            self.Xtest[:, find_low:find_up ] = f_test
+        elif f_id == -1:
+            if scipy.sparse.issparse(self.Xtrain) or scipy.sparse.issparse(f_train):
+                sparsify = True
+            else:
+                sparsify = False
+
+            if sparsify:
+                hstack_func = scipy.sparse.hstack
+            else:
+                hstack_func = np.hstack
+
+            self.Xtrain = hstack_func((self.Xtrain, f_train))
+            self.Xtest = hstack_func((self.Xtest, f_test))
+
+            if sparsify:
+                self.Xtrain.tocsr()
+                self.Xtest.tocsr()
+
+            find_last = self.find_list[-1]
+
+            self.fname_list.append(f_name)
+            self.ftype_list.append(f_train.dtype.type)
+            self.find_list.append(find_last + f_train.shape[1])
+
+
+    def __add__(self, other):
+        if not isinstance(other, MyFeatureSet):
+            print 'not MyFeatureSet instance'
+            return 
+
+        return concat_fsets([self, other])
+
+    # def generate_feature_set(self, file_path):
+    #     raise NotImplementedError
 
     def load_feature_set(self, file_path = None):
         if not file_path:
@@ -1076,7 +1223,8 @@ class MyFeatureSet(object):
                     self.fname_list, self.find_list, self.Xtrain, self.Xtest = pickle.load(f)
             except IOError:
                 print 'Loading feature set file failed: file not found.'
-                self.generate_feature_set(file_path)
+                if hasattr(self, 'generate_feature_set'):
+                    self.generate_feature_set(file_path)
         else:
             print 'Loading featue set file failed: file not saved.'
 
@@ -1088,7 +1236,162 @@ class MyFeatureSet(object):
             pickle.dump([self.fname_list, self.find_list, self.Xtrain, self.Xtest], f, pickle.HIGHEST_PROTOCOL)
         self._file_path = file_path
 
+    def feature_names(self):
+        return self.fname_list
 
+    def values(self):
+        return self.Xtrain, self.Xtest
+
+    def copy(self):
+        clone = MyFeatureSet();
+        clone.fname_list = self.fname_list[:]
+        clone.find_list = self.find_list[:]
+        clone.ftype_list = self.ftype_list[:]
+        clone.Xtrain = self.Xtrain.copy()
+        clone.Xtest = self.Xtest.copy()
+        return clone
+
+
+    # return a MyFeatureSet object with features in dorp_list dropped
+    # either use name or use order/index, cannot mix
+    def drop(self, drop_list):
+        if not hasattr(drop_list, '__iter__'):
+            drop_list = [drop_list]
+
+        n_feature = len(self.fname_list)
+        if isinstance(drop_list[0], str):
+            keep_list = [self.fname_list.index(f) for f in self.fname_list if f not in drop_list]
+        elif isinstance(drop_list[0], int):
+            keep_list = [ind for ind in range(n_feature) if ind not in drop_list]
+        else:
+            print 'Unsupported drop list'
+            return None
+
+        print keep_list
+
+        return self.__getitem__(keep_list)
+
+    def inplace_combine_rare(self, input_col_list = list(), prefix = 'cr_', rare_line = 1):
+        fset_combine_rare(self, input_col_list, prefix, rare_line)
+
+    def combine_rare(self, input_col_list = list(), prefix = 'cr_', rare_line = 1):
+        new_fset = self.copy()
+        fset_combine_rare(new_fset, input_col_list, prefix, rare_line)
+        return new_fset
+
+    def onehot_encode(self, input_col_list = list(), prefix = 'oh_'):
+        return fset_onehot_encode(self, input_col_list, prefix)
+
+    def inplace_label_encode(self, input_col_list = list(), prefix = 'le_'):
+        fset_label_encode(self, input_col_list, prefix)
+
+    def label_encode(self, input_col_list = list(), prefix = 'le_'):
+        new_fset = self.copy()
+        fset_label_encode(new_fset, input_col_list, prefix)
+        return new_fset
+
+    def inplace_numeric_transform(self, input_col_list = list(), operation='log', standardize=False):
+        fset_numeric_transform(self, input_col_list, operation, standardize)
+
+    def numeric_transform(self, input_col_list = list(), operation='log', standardize=False):
+        new_fset = self.copy()
+        fset_numeric_transform(new_fset, input_col_list, operation, standardize)
+        return new_fset
+
+    def merge_multiple_cat_columns(self, input_col_multiple, hasher=None):
+        return fset_merge_multiple_cat_columns(self, input_col_multiple, hasher)
+
+# basic functions
+    def show_basic_statics(self, col_list = list()):
+        fset_show_basic_statics(self, col_list)
+
+    def check_two_columns(self, input_col1, input_col2):
+        fset_check_two_columns(self, input_col1, input_col2)
+
+
+# generate MyFeatureSet object from a tuple of dataframe, support dropping certain feature
+def df_to_fset(df_tuple, drop_list = list()):
+    if len(df_tuple) != 2:
+        print 'require two dataframe'
+        return
+
+    df_train, df_test = df_tuple
+
+    col_train = df_train.columns.values
+    col_test = df_test.columns.values
+
+    col_all = [col for col in col_train if col in col_test]
+    col_keep = [col for col in col_all if col not in drop_list]
+
+    new_fset = MyFeatureSet()
+    new_fset.fname_list = col_keep
+    new_fset.find_list = range(len(col_keep)+1)
+    new_fset.Xtrain = df_train[col_keep].values
+    new_fset.Xtest = df_test[col_keep].values
+    for col in col_keep:
+        new_fset.ftype_list.append(df_train[col].values.dtype.type)
+
+    return new_fset
+        
+
+# new version, returns a fset
+def concat_fsets(myfset_list, sparsify = False):  
+    if not sparsify:
+        for myfset in myfset_list:
+            if scipy.sparse.issparse(myfset.Xtrain):
+                sparsify = True
+                break
+
+    if sparsify:
+        hstack_func = scipy.sparse.hstack
+    else:
+        hstack_func = np.hstack
+
+    newfname_list = []
+    newftype_list = []
+    newfind_list = []
+    newXtrain = None
+    newXtest = None
+
+    n_fset = len(myfset_list)
+    for i in xrange(n_fset):
+        myfset = myfset_list[i]
+
+        if i == 0:
+            newfname_list = myfset.fname_list
+            newftype_list = myfset.ftype_list
+            newfind_list = myfset.find_list
+            
+            newXtrain = myfset.Xtrain.copy
+            newXtest = myfset.Xtest.copy
+
+        else:
+            newfname_list = newfname_list + myfset.fname_list
+            newftype_list = newftype_list + myfset.ftype_list
+
+            prev_total = newfind_list[-1]
+            curfind_list = [prev_total + find for find in myfset.find_list[1:]]
+            newfind_list = newfind_list + curfind_list
+
+            newXtrain = hstack_func((newXtrain, myfset.Xtrain))
+
+            newXtest = hstack_func((newXtest, myfset.Xtest))
+ 
+
+    if sparsify:
+        newXtrain = newXtrain.tocsr()
+        newXtest = newXtest.tocsr()
+
+    new_fset = MyFeatureSet()
+    new_fset.fname_list = newfname_list
+    new_fset.ftype_list = newftype_list
+    new_fset.find_list = newfind_list
+    new_fset.Xtrain = newXtrain
+    new_fset.Xtest = newXtest
+
+    return new_fset
+
+# old version
 # concatenate feature set in feature set list, sparsify if one of the feature set is sparse
 def concat_feature_set(myfset_list, sparsify = False):  
     if not sparsify:
@@ -1112,13 +1415,11 @@ def concat_feature_set(myfset_list, sparsify = False):
         myfset = myfset_list[i]
 
         if i == 0:
-            newfname_list = myfset.fname_list
-            
+            newfname_list = myfset.fname_list 
             newfind_list = myfset.find_list
             
-            newXtrain = myfset.Xtrain
-            
-            newXtest = myfset.Xtest
+            newXtrain = myfset.Xtrain.copy
+            newXtest = myfset.Xtest.copy
 
         else:
             newfname_list = newfname_list + myfset.fname_list
@@ -1128,15 +1429,350 @@ def concat_feature_set(myfset_list, sparsify = False):
             newfind_list = newfind_list + curfind_list
 
             newXtrain = hstack_func((newXtrain, myfset.Xtrain))
-
             newXtest = hstack_func((newXtest, myfset.Xtest))
- 
 
     if sparsify:
         newXtrain = newXtrain.tocsr()
         newXtest = newXtest.tocsr()
 
     return newfname_list, newfind_list, newXtrain, newXtest
+
+def fset_onehot_encode(myfset, input_col_list = list(), prefix = 'oh_'):
+    if not hasattr(input_col_list, '__iter__'):
+        input_col_list = [input_col_list]
+
+    n_feature = len(myfset.fname_list)
+    if not input_col_list :
+        input_col_list = range(n_feature)
+        check_int = True
+    else:
+        check_int = False
+
+    # modification if we have string
+    if isinstance(input_col_list[0], int):
+        col_list = input_col_list
+    elif isinstance(input_col_list[0], str):
+        col_list = [myfset.fname_list.index(col) for col in input_col_list if col in myfset.fname_list]
+    else:
+        print 'unsupported indexing'
+        return    
+    col_list.sort()
+
+    new_fset = myfset.copy()
+
+    if scipy.sparse.issparse(new_fset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    n_train = myfset.Xtrain.shape[0]
+    n_test = myfset.Xtest.shape[0]
+
+    encode_col = list()
+    encode_ind = list()
+    unencode_col = list()
+    unencode_ind = list()
+
+    # first perfrom label encoding
+    lb_encoder = preprocessing.LabelEncoder()
+    for col in col_list:
+        if (new_fset.find_list[col+1] - new_fset.find_list[col]) > 1:
+            unencode_col.append(col)
+            unencode_ind = unencode_ind + range(new_fset.find_list[col], new_fset.find_list[col+1])
+            continue
+        else:
+            ind = new_fset.find_list[col]
+            if not issubclass(new_fset.ftype_list[col], np.integer):
+                if chech_int:
+                    unencode_col.append(col)
+                    unencode_ind.append(ind)
+                    continue
+                else:
+                    new_fset.ftype_list[col] = np.integer
+
+            encode_col.append(col)
+            encode_ind.append(ind)
+
+        train_data = new_fset.Xtrain[:, ind]
+        test_data = new_fset.Xtest[:, ind]
+
+        if sparsify:
+            train_data = np.squeeze(train_data.toarray())
+            test_data = np.squeeze(test_data.toarray())
+
+        lb_encoder.fit(np.hstack((train_data, test_data)))
+
+        new_train_data = lb_encoder.transform(train_data)
+        new_test_data = lb_encoder.transform(test_data)
+
+        if sparsify:
+            new_train_data = new_train_data.reshape(n_train, 1)
+            new_test_data = new_test_data.reshape(n_test, 1)
+
+        new_fset.Xtrain[:, ind] = new_train_data
+        new_fset.Xtest[:, ind] = new_test_data
+
+    #one hot encoding
+    encode_Xtrain = new_fset.Xtrain[:, encode_ind]
+    encode_Xtest = new_fset.Xtest[:, encode_ind]
+
+    if sparsify:
+        encode_Xtrain = encode_Xtrain.toarray()
+        encode_Xtest = encode_Xtest.toarray()
+
+    unencode_Xtrain = new_fset.Xtrain[:, unencode_ind]
+    unencode_Xtest = new_fset.Xtrain[:, unencode_ind]
+
+    oh_encoder = preprocessing.OneHotEncoder()
+    oh_encoder.fit(np.vstack((encode_Xtrain, encode_Xtest)))
+    new_fset.Xtrain = oh_encoder.transform(encode_Xtrain).tocsr()  
+    new_fset.Xtest = oh_encoder.transform(encode_Xtest).tocsr()
+    
+    new_fset.Xtrain = scipy.sparse.hstack((new_fset.Xtrain, unencode_Xtrain)).tocsr()
+    new_fset.Xtest = scipy.sparse.hstack((new_fset.Xtest, unencode_Xtest)).tocsr()
+
+    encode_fname_list = [prefix + new_fset.fname_list[col] for col in encode_col]
+    unencode_fname_list = [new_fset.fname_list[col] for col in unencode_col]
+
+    encode_ftype_list = [new_fset.ftype_list[col] for col in encode_col]
+    unencode_ftype_list = [new_fset.ftype_list[col] for col in unencode_col]
+
+    new_fset.fname_list = encode_fname_list + unencode_fname_list
+    new_fset.ftype_list = encode_ftype_list + unencode_ftype_list
+
+    new_find_list = list(oh_encoder.feature_indices_)
+    for col in unencode_col:
+        find_last = newfind_list[-1]
+        find_low = new_fset.find_list[col]
+        find_up = new_fset.find_list[col+1]
+        new_find_list.append(find_last + find_up - find_low)
+
+    new_fset.find_list = new_find_list
+
+    return new_fset
+
+def fset_label_encode(myfset, input_col_list = list(), prefix = 'le_'):
+    if not hasattr(input_col_list, '__iter__'):
+        input_col_list = [input_col_list]
+
+    n_feature = len(myfset.fname_list)
+    if not input_col_list :
+        input_col_list = range(n_feature)
+        check_int = True
+    else:
+        check_int = False
+
+    # modification if we have string
+    if isinstance(input_col_list[0], int):
+        col_list = input_col_list
+    elif isinstance(input_col_list[0], str):
+        col_list = [myfset.fname_list.index(col) for col in input_col_list if col in myfset.fname_list]
+    else:
+        print 'unsupported indexing'
+        return
+
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    n_train = myfset.Xtrain.shape[0]
+    n_test = myfset.Xtest.shape[0]
+    for col in col_list:
+        if (myfset.find_list[col+1] - myfset.find_list[col] > 1):
+            continue
+
+        ind = myfset.find_list[col]
+        col_type = myfset.ftype_list[col]
+        # print col_data[0]
+        if issubclass(col_type, np.integer) or (not check_int):
+            col_data_train = myfset.Xtrain[:, ind]
+            col_data_test = myfset.Xtest[:, ind]
+            
+            if sparsify:
+                col_data_train = np.squeeze(col_data_train.toarray())
+                col_data_test = np.squeeze(col_data_test.toarray())
+
+            col_data = np.hstack((col_data_train, col_data_test))
+            le = preprocessing.LabelEncoder()
+            le.fit(col_data)
+            col_data = le.transform(col_data)
+
+            new_col_data_train = col_data[:n_train]
+            new_col_data_test = col_data[n_train:]
+
+            if sparsify:
+                new_col_data_train = new_col_data_train.reshape(n_train, 1)
+                new_col_data_test = new_col_data_test.reshape(n_test, 1)
+
+            myfset.Xtrain[:, col] = new_col_data_train
+            myfset.Xtest[:, col] = new_col_data_test
+            if not issubclass(col_type, np.integer):
+                myfset.ftype_list[col] = np.integer
+            myfset.fname_list[col] = prefix + myfset.fname_list[col]
+        else:
+            print 'col:{0:s} not integer, include in list if insist'.format(myfset.fname_list[col])    
+
+
+
+def fset_combine_rare(myfset, input_col_list = list(), prefix = 'cr_', rare_line = 1):
+    if not hasattr(input_col_list, '__iter__'):
+        input_col_list = [input_col_list]
+
+    n_feature = len(myfset.fname_list)
+    if not input_col_list :
+        input_col_list = range(n_feature)
+        check_int = True
+    else:
+        check_int = False
+
+    # modification if we have string
+    if isinstance(input_col_list[0], int):
+        col_list = input_col_list
+    elif isinstance(input_col_list[0], str):
+        col_list = [myfset.fname_list.index(col) for col in input_col_list if col in myfset.fname_list]
+    else:
+        print 'unsupported indexing'
+        return
+
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    n_train = myfset.Xtrain.shape[0]
+    n_test = myfset.Xtest.shape[0]
+    for col in col_list:
+        if (myfset.find_list[col+1] - myfset.find_list[col] > 1):
+            continue
+
+        ind = myfset.find_list[col]
+        col_type = myfset.ftype_list[col]
+        # print col_data[0]
+        if issubclass(col_type, np.integer) or (not check_int):
+            col_data_train = myfset.Xtrain[:, ind]
+            col_data_test = myfset.Xtest[:, ind]
+            
+            if sparsify:
+                col_data_train = np.squeeze(col_data_train.toarray())
+                col_data_test = np.squeeze(col_data_test.toarray())
+
+            col_data = np.hstack((col_data_train, col_data_test))
+            le = preprocessing.LabelEncoder()
+            le.fit(col_data)
+            col_data = le.transform(col_data)
+            max_label = np.amax(col_data)
+            counts = np.bincount(col_data)
+            rare_cats = np.argwhere(counts <= rare_line)
+            rare_cats = rare_cats.reshape(rare_cats.shape[0])
+            rare_positions = [np.argwhere(col_data == rare_cat)[0,0] for rare_cat in rare_cats]
+            # print len(rare_positions)
+            col_data[rare_positions] = max_label+1
+            new_col_data_train = col_data[:n_train]
+            new_col_data_test = col_data[n_train:]
+
+            if sparsify:
+                new_col_data_train = new_col_data_train.reshape(n_train, 1)
+                new_col_data_test = new_col_data_test.reshape(n_test, 1)
+
+            myfset.Xtrain[:, col] = new_col_data_train
+            myfset.Xtest[:, col] = new_col_data_test
+            if not issubclass(col_type, np.integer):
+                myfset.ftype_list[col] = np.integer
+            myfset.fname_list[col] = prefix + myfset.fname_list[col] 
+        else:
+            print 'col:{0:s} not integer, include in list if insist'.format(myfset.fname_list[col])
+
+
+def fset_numeric_transform(myfset, input_col_list = list(), operation='log', standardize=False):
+    if not hasattr(input_col_list, '__iter__'):
+        input_col_list = [input_col_list]
+
+    n_feature = len(myfset.fname_list)
+    if not input_col_list :
+        input_col_list = range(n_feature)
+        check_int = True
+    else:
+        check_int = False
+
+    # modification if we have string
+    if isinstance(input_col_list[0], int):
+        col_list = input_col_list
+    elif isinstance(input_col_list[0], str):
+        col_list = [myfset.fname_list.index(col) for col in input_col_list if col in myfset.fname_list]
+    else:
+        print 'unsupported indexing'
+        return
+
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    n_train = myfset.Xtrain.shape[0]
+    n_test = myfset.Xtest.shape[0]
+
+    if operation == 'log':
+        vfunc = np.vectorize(lambda x: np.log(x))
+        suffix = '_l'
+    elif operation == 'log1p':
+        vfunc = np.vectorize(lambda x: np.log1p(x))
+        suffix = '_lp'
+    elif operation == 'exp':
+        vfunc = np.vectorize(lambda x: np.exp(x))
+        suffix = '_e'
+    elif operation == 'expm1':
+        vfunc = np.vectorize(lambda x: np.expm1(x))
+        suffix = '_em'
+    elif operation == 'square':
+        vfunc = np.vectorize(lambda x: x**2)
+        suffix ='_sq'
+    elif operation == 'none':
+        vfunc = None
+        suffix = ''
+    else:
+        vfunc = None
+        suffix = ''
+        print 'Unkown operation not performed'
+
+    if standardize:
+        if not suffix:
+            suffix = '_s'
+        else:
+            suffix = suffix + 's'
+
+    for col in col_list:
+        if (myfset.find_list[col+1] - myfset.find_list[col] > 1):
+            continue
+
+        ind = myfset.find_list[col]
+
+        col_data_train = myfset.Xtrain[:, ind]
+        col_data_test = myfset.Xtest[:, ind]
+        if sparsify:
+            col_data_train = np.squeeze(col_data_train.toarray())
+            col_data_test = np.squeeze(col_data_test.toarray())
+
+        if vfunc:
+            col_data_train = vfunc(col_data_train)
+            col_data_test = vfunc(col_data_test)
+        if standardize:
+            col_data = np.hstack((col_data_train, col_data_test))
+            col_mean = np.mean(col_data)
+            col_std = np.std(col_data)
+            # print col_mean, col_std
+            new_col_data_train = 1./col_std * (col_data_train - col_mean)
+            new_col_data_test = 1./col_std * (col_data_test - col_mean)
+
+            if sparsify:
+                new_col_data_train = new_col_data_train.reshape(n_train, 1)
+                new_col_data_test = new_col_data_test.reshape(n_test, 1)
+
+            myfset.Xtrain[:, col] = new_col_data_train
+            myfset.Xtest[:, col] = new_col_data_test
+
+        myfset.fname_list[col] = myfset.fname_list[col] + suffix
+
 
 # selecting extra feature 
 def random_select_feature(myclassifier, bfset, myfset, ytrain, nfolds=5, randstate=SEED, score_func=roc_auc_score):
@@ -1196,13 +1832,103 @@ def random_select_feature(myclassifier, bfset, myfset, ytrain, nfolds=5, randsta
 
     return newfname_list, newfind_list, newXtrain, newXtest 
 
-# merge two feature in feature set, now only support catergorical feature
-def fset_check_two_columns(myfset, col1, col2):
-    c1_ind = myfset.find_list[col1]
-    c2_ind = myfset.find_list[col2]
 
-    c1_name = myfset.fname_list[col1]
-    c2_name = myfset.fname_list[col2]
+## fset version of basic operations, can access using index or name
+def fset_show_basic_statics(myfset, col_list = list()):
+    if not hasattr(col_list, '__iter__'):
+        col_list = [col_list]
+
+    n_feature = len(myfset.fname_list)
+    if not col_list:
+        col_list = range(n_feature)
+
+    if isinstance(col_list[0], str):
+        col_list = [myfset.fname_list.index(col) for col in col_list if col in myfset.fname_list]
+    elif isinstance(col_list[0], int):
+        col_list = [col for col in col_list if col in range(n_feature)]
+    else:
+        print 'indexing not supported'
+        return
+
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    print 'Showing Statistics\n'
+    for col in col_list:
+        col_name = myfset.fname_list[col]
+        col_type = myfset.ftype_list[col]
+        find_low = myfset.find_list[col]
+        find_up = myfset.find_list[col+1]
+        if (find_up - find_low) > 1:
+            oh_encoded = True
+        else:
+            oh_encoded = False
+
+
+        print 'Col:', col_name, 'type:', col_type
+        if oh_encoded:
+            print '(oh_encoded) unique:', find_up-find_low, 'skipping details'
+            print
+            continue
+
+        train_data = myfset.Xtrain[:, find_low]
+        num_unique = np.unique(train_data).shape[0]
+        min_elem = np.amin(train_data)
+        max_elem = np.amax(train_data)
+        mean = np.mean(train_data)
+        std = np.std(train_data)
+        values, counts = np.unique(train_data, return_counts=True)
+        ind = np.argmax(counts)
+        print 'train:'
+        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std, \
+            '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind])
+
+
+        test_data = myfset.Xtest[:, find_low]
+        num_unique = np.unique(test_data).shape[0]
+        min_elem = np.amin(test_data)
+        max_elem = np.amax(test_data)
+        mean = np.mean(test_data)
+        std = np.std(test_data)
+        values, counts = np.unique(test_data, return_counts=True)
+        ind = np.argmax(counts)
+        print 'test:'
+        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std, \
+            '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind])
+
+        all_data = np.hstack((train_data, test_data))
+        num_unique = np.unique(all_data).shape[0]
+        min_elem = np.amin(all_data)
+        max_elem = np.amax(all_data)
+        mean = np.mean(all_data)
+        values, counts = np.unique(all_data, return_counts=True)
+        ind = np.argmax(counts)
+        print 'all:'
+        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std, \
+            '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind])
+
+
+# merge two feature in feature set, now only support catergorical feature
+def fset_check_two_columns(myfset, input_col1, input_col2):
+    if isinstance(input_col1, int):
+        col1 = input_col1
+        c1_ind = myfset.find_list[col1]
+        c1_name = myfset.fname_list[col1]
+    elif isinstance(input_col1, str):
+        col1 = myfset.fname_list.index(input_col1)
+        c1_ind = myfset.find_list[col1]
+        c1_name = myfset.fname_list[col1]
+
+    if isinstance(input_col2, int):
+        col2 = input_col2
+        c2_ind = myfset.find_list[col2]
+        c2_name = myfset.fname_list[col2]
+    elif isinstance(input_col2, str):
+        col2 = myfset.fname_list.index(input_col2)
+        c2_ind = myfset.find_list[col2]
+        c2_name = myfset.fname_list[col2]
 
     print 'Checking {0:s} and {1:s}'.format(c1_name, c2_name)
 
@@ -1222,6 +1948,65 @@ def fset_check_two_columns(myfset, col1, col2):
 
     print '{0:s}:'.format(c1_name), num_unique_c1, '{0:s}:'.format(c2_name), num_unique_c2, 'comb:', num_unique_c1_c2
 
+def fset_merge_multiple_cat_columns(myfset, input_col_multiple, hasher=None):
+    n_col = len(input_col_multiple)
+    if n_col <= 1:
+        return
+
+    if isinstance(input_col_multiple[0], str):
+        col_multiple = [myfset.fname_list.index(col) for col in input_col_multiple if col in myfset.fname_list]
+    elif isinstance(input_col_multiple[0], int):
+        n_feature = len(myfset.fname_list)
+        col_multiple = [col for col in input_col_multiple if col in range(n_feature)]
+    else:
+        print 'indexing not supported'
+        return
+
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    if sparsify:
+        vstack_func = scipy.sparse.vstack
+    else:
+        vstack_func = np.vstack
+
+    pre_col_list = list(col_multiple)
+    col_list = [col for col in pre_col_list if (myfset.find_list[col+1] - myfset.find_list[col]) == 1]
+    col_ind = list(np.array(myfset.find_list)[col_list])
+
+    X_merge = vstack_func((myfset.Xtrain[:,col_ind], myfset.Xtest[:, col_ind]))
+
+    if sparsify:
+        X_merge = X_merge.toarray()
+
+    cm_data = X_merge[:, 0]
+
+    for col_t in xrange(1, n_col):
+        ct_data = X_merge[:, col_t]
+
+        cm_ct_tuple = zip(cm_data, ct_data)
+        cm_ct_set = set(cm_ct_tuple)
+
+        cm_ct_tuple_dict = dict()
+        i = 0
+        for cm_ct in cm_ct_set:
+            cm_ct_tuple_dict[cm_ct] = i
+            i+=1
+
+        cm_data = np.zeros(cm_data.shape[0], np.int)
+        for i in xrange(cm_data.shape[0]):
+            cm_data[i] = cm_ct_tuple_dict[cm_ct_tuple[i]]
+
+    if hasher:
+        cm_data = hasher(cm_data)
+
+    n_train = myfset.Xtrain.shape[0]
+    col_new_data_train = cm_data[:n_train]
+    col_new_data_test = cm_data[n_train:]
+
+    return col_new_data_train, col_new_data_test
 
 def fset_merge_two_cat_columns(myfset, col_tuple, hasher=None):
     col1 = col_tuple[0]
@@ -1296,43 +2081,6 @@ def fset_merge_three_cat_columns(myfset, col_triple, hasher=None):
 
     return col_new_data_train, col_new_data_test
 
-def fset_merge_multiple_cat_columns(myfset, col_multiple, hasher=None):
-    n_col = len(col_multiple)
-    if n_col <= 1:
-        return
-
-    col_list = list(col_multiple)
-    col_ind = list(np.array(myfset.find_list)[col_list])
-
-    X_merge = np.vstack((myfset.Xtrain[:,col_ind], myfset.Xtest[:, col_ind]))
-
-    cm_data = X_merge[:, 0]
-
-    for col_t in xrange(1, n_col):
-        ct_data = X_merge[:, col_t]
-
-        cm_ct_tuple = zip(cm_data, ct_data)
-        cm_ct_set = set(cm_ct_tuple)
-
-        cm_ct_tuple_dict = dict()
-        i = 0
-        for cm_ct in cm_ct_set:
-            cm_ct_tuple_dict[cm_ct] = i
-            i+=1
-
-        cm_data = np.zeros(cm_data.shape[0], np.int)
-        for i in xrange(cm_data.shape[0]):
-            cm_data[i] = cm_ct_tuple_dict[cm_ct_tuple[i]]
-
-    if hasher:
-        cm_data = hasher(cm_data)
-
-    n_train = myfset.Xtrain.shape[0]
-    col_new_data_train = cm_data[:n_train]
-    col_new_data_test = cm_data[n_train:]
-
-    return col_new_data_train, col_new_data_test
-
 
 # def fset_relabel_integer_col(df, col_list = list()):
 #     if not col_list:
@@ -1340,7 +2088,7 @@ def fset_merge_multiple_cat_columns(myfset, col_multiple, hasher=None):
 
 #     for col_name in col_list:
 #         col_data = df[col_name].values
-#         if issubclass(col_data.dtype.type, np.integer):
+#         if issubclass(col_data.type.type, np.integer):
 #                 le = preprocessing.LabelEncoder()
 #                 le.fit(col_data)
 #                 col_data = le.transform(col_data)
@@ -1352,7 +2100,7 @@ def fset_merge_multiple_cat_columns(myfset, col_multiple, hasher=None):
 
 #     for col_name in col_list:
 #         col_data = df[col_name].values
-#         if issubclass(col_data.dtype.type, np.float):
+#         if issubclass(col_data.type.type, np.float):
 #             nnz = np.nonzero(col_data)[0].shape[0]
 #             n_unique = np.unique(col_data).shape[0]
 #             rate = float(n_unique)/nnz
