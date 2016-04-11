@@ -172,355 +172,6 @@ def combine_rare(df, col_list = list(), new_name_list = list(), rare_line=1):
 
 import cPickle as pickle
 
-# generating countable
-
-class MyCountTable(object):
-    def __init__(self):
-        self.one_count_table = dict()
-        self.two_count_table = dict()
-        self._file_path = None
-
-    def save_count_tables(self, file_path = None):
-        if file_path:
-            self._file_path = file_path
-        elif self._file_path:
-            file_path = self._file_path
-        else:
-            print 'Saving count table file failed: path not specified'
-            return
-
-        directory = os.path.dirname(file_path)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        with open(file_path, 'wb') as f:
-            pickle.dump([self.one_count_table, self.two_count_table], f, pickle.HIGHEST_PROTOCOL)
-        
-
-    def load_count_tables(self, file_path = None):
-        if file_path:
-            self._file_path = file_path
-        elif self._file_path:
-            file_path = self._file_path
-        else:
-            print 'Loading count table file failed: path not specified'
-            return
-
-        try:
-            with open( file_path, 'rb') as f:
-                self.one_count_table, self.two_count_table = pickle.load(f)
-        except IOError:
-            print 'Loading count table file failed: file not found.'
-        
-
-    # count table operation related with data frame
-    def df_generate_count_tables(self, df, task = 'both', col_list=list(), file_path = None):
-        if not col_list:
-            col_list = list(df.columns.values)
-
-        n_col = len(col_list)
-
-        if task == 'both' or task == 'one':
-            for i in xrange(n_col):
-                col_i = col_list[i]
-                col_i_data = df[col_i].values
-                col_i_set = np.unique(col_i_data)
-
-                if col_i in self.one_count_table:
-                    continue
-                self.one_count_table[col_i] = dict()
-                for i_elem in col_i_set:
-                    sub_i_ind = np.argwhere(col_i_data == i_elem)
-                    self.one_count_table[col_i][i_elem] = sub_i_ind.shape[0]
-
-        if task == 'both' or task == 'two':
-            for i in xrange(n_col):
-                col_i = col_list[i]
-                col_i_data = df[col_i].values
-                col_i_set = np.unique(col_i_data)
-
-                for j in xrange(n_col):
-                    if j == i:
-                        continue
-                    col_j = col_list[j]
-                    col_j_data = df[col_j].values
-
-                    tuple_col_ij = (col_i, col_j)
-                    if tuple_col_ij in self.two_count_table:
-                        continue
-                    self.two_count_table[tuple_col_ij] = dict()
-                    for i_elem in col_i_set:
-                        sub_i_ind = np.argwhere(col_i_data == i_elem)
-                        sub_i_ind = sub_i_ind.reshape(sub_i_ind.shape[0])
-                        sub_j_data = col_j_data[sub_i_ind]
-                        sub_j_set = np.unique(sub_j_data)
-
-                        self.two_count_table[tuple_col_ij][i_elem] = {'unique': len(sub_j_set)}
-                        for j_elem in sub_j_set:
-                            sub_j_ind = np.argwhere(sub_j_data == j_elem)
-                            self.two_count_table[tuple_col_ij][i_elem][j_elem] = sub_j_ind.shape[0]
-
-        self.save_count_tables(file_path)
-
-    # only called when directed from df_two_degree_counts or df_one_degree_counts
-    # helper function to load and generate count table when necessary
-    def _df_get_count_tables(self, df, task = 'both', col_list = list(), file_path = None):
-        if not col_list:
-            col_list = list(df.columns.values)
-
-        if not file_path:
-            file_path = self._file_path
-
-        # first try local count tables
-        flag = 0
-        if task == 'both' or task == 'one':
-            for col in col_list:
-                if col not in self.one_count_table:
-                    flag = 1
-                    break
-        if task == 'both' or task == 'two':
-            for col1 in col_list:
-                for col2 in col_list:
-                    if col1 == col2:
-                        continue
-                    if (col1, col2) not in self.two_count_table:
-                        flag = 1
-                        break
-
-        if flag == 0:
-            return
-
-        # if not good try dumped count tables
-        if file_path:
-            self.load_count_tables(file_path)
-            flag = 0
-            if task == 'both' or task == 'one':
-                for col in col_list:
-                    if col not in self.one_count_table:
-                        flag = 1
-                        break
-            if task == 'both' or task == 'two':
-                for col1 in col_list:
-                    for col2 in col_list:
-                        if col1 == col2:
-                            continue
-                        if (col1, col2) not in self.two_count_table:
-                            flag = 1
-                            break
-
-        # generate countables if necessary
-        if flag == 1:
-                self.df_generate_count_tables(df, task, col_list, file_path)
-
-
-    def df_two_degree_counts(self, df, col_i, col_j, operation, file_path = None):
-        # if two columns are the same just return one_degree_count
-        if col_i == col_j:
-            return self.df_one_degree_counts(df, col_i, file_path)
-
-        if operation == 'per':
-            task = 'both'
-        elif operation == 'num':
-            task = 'two'
-        else:
-            print 'unknown operation'
-            return
-                
-        self._df_get_count_tables(df, task, [col_i, col_j], file_path)
-
-        i_table = one_count_table[col_i]
-        ij_table = two_count_table[(col_i, col_j)]
-
-        col_i_data = df[col_i].values
-        col_j_data = df[col_j].values
-        if operation == 'per':  # 'per': percentage of (elem_i, elem_j) in all (elem_i, col_j)  
-            vfunc = np.vectorize(lambda x,y: float(ij_table[x][y])/i_table[x])
-            col_new = vfunc(col_i_data, col_j_data)
-        elif operation == 'num':    # 'num': number of different kinds of (elem_i, col_j) 
-            vfunc = np.vectorize(lambda x: ij_table[x]['unique'])
-            col_new = vfunc(col_i_data)
-
-        return col_new
-
-    def df_one_degree_counts(self, df, col_i, file_path = None):
-        self._df_get_count_tables(df, 'one', [col_i], file_path)
-
-        i_table = one_count_table[col_i]
-
-        col_i_data = df[col_i].values
-        vfunc = np.vectorize(lambda x: i_table[x])
-        col_new = vfunc(col_i_data)
-
-        return col_new
-
-    # fset  version of countable
-    def fset_generate_count_tables(self, myfset, task = 'both' ,col_list=list(), file_path = None):
-        if not col_list:
-            col_list = range(len(myfset.fname_list))
-
-        if not file_path:
-            file_path = self._file_path 
-
-        # n_col = len(col_list)
-
-        if task == 'both' or task == 'one':
-            for col_i in col_list:
-                col_i_name = myfset.fname_list[col_i]
-                col_i_ind = myfset.find_list[col_i]
-                col_i_data_train = myfset.Xtrain[:, col_i_ind]
-                col_i_data_test = myfset.Xtest[:, col_i_ind]
-                col_i_data = np.hstack((col_i_data_train, col_i_data_test))
-                col_i_set = np.unique(col_i_data)
-
-                if col_i_name in self.one_count_table:
-                    continue
-                self.one_count_table[col_i_name] = dict()
-                for i_elem in col_i_set:
-                    sub_i_ind = np.argwhere(col_i_data == i_elem)
-                    self.one_count_table[col_i_name][i_elem] = sub_i_ind.shape[0]
-
-        if task == 'both' or task == 'two':
-            for col_i in col_list:
-                col_i_name = myfset.fname_list[col_i]
-                col_i_ind = myfset.find_list[col_i]
-                col_i_data_train = myfset.Xtrain[:, col_i_ind]
-                col_i_data_test = myfset.Xtest[:, col_i_ind]
-                col_i_data = np.hstack((col_i_data_train, col_i_data_test))
-                col_i_set = np.unique(col_i_data)
-
-                for col_j in col_list:
-                    if col_j == col_i:
-                        continue
-                    col_j_name = myfset.fname_list[col_j]
-                    col_j_ind = myfset.find_list[col_j]
-                    col_j_data_train = myfset.Xtrain[:, col_j_ind]
-                    col_j_data_test = myfset.Xtest[:, col_j_ind]
-                    col_j_data = np.hstack((col_j_data_train, col_j_data_test))
-
-                    tuple_col_ij = (col_i_name, col_j_name)
-                    if tuple_col_ij in self.two_count_table:
-                        continue
-                    self.two_count_table[tuple_col_ij] = dict()
-                    for i_elem in col_i_set:
-                        sub_i_ind = np.argwhere(col_i_data == i_elem)
-                        sub_i_ind = sub_i_ind.reshape(sub_i_ind.shape[0])
-                        sub_j_data = col_j_data[sub_i_ind]
-                        sub_j_set = np.unique(sub_j_data)
-
-                        self.two_count_table[tuple_col_ij][i_elem] = {'unique': len(sub_j_set)}
-                        for j_elem in sub_j_set:
-                            sub_j_ind = np.argwhere(sub_j_data == j_elem)
-                            self.two_count_table[tuple_col_ij][i_elem][j_elem] = sub_j_ind.shape[0]
-
-        self.save_count_tables(file_path)    
-
-    def _fset_get_count_tables(self, myfset, task = 'both', col_list=list(), file_path = None):
-        if not col_list:
-            col_list = range(len(myfset.fname_list))
-
-        if not file_path:
-            file_path = self._file_path
-
-        # first try local count tables
-        flag = 0
-        if task == 'both' or task == 'one':
-            for col in col_list:
-                col_name = myfset.fname_list[col]
-                if col_name not in self.one_count_table:
-                    flag = 1
-                    break
-
-        if task == 'both' or task == 'two':
-            for col1 in col_list:
-                col1_name = myfset.fname_list[col1]
-                for col2 in col_list:
-                    if col1 == col2:
-                        continue
-                    col2_name = myfset.fname_list[col2]
-                    if (col1_name, col2_name) not in self.two_count_table:
-                        flag = 1
-                        break
-
-        if flag == 0:
-            return
-
-        # if not good try dumped count tables
-        if file_path:
-            self.load_count_tables(file_path)
-            flag = 0
-            if task == 'both' or task == 'one':
-                for col in col_list:
-                    col_name = myfset.fname_list[col]
-                    if col_name not in self.one_count_table:
-                        flag = 1
-                        break
-
-            if task == 'both' or task == 'two':
-                for col1 in col_list:
-                    col1_name = myfset.fname_list[col1]
-                    for col2 in col_list:
-                        if col1 == col2:
-                            continue
-                        col2_name = myfset.fname_list[col2]
-                        if (col1_name, col2_name) not in self.two_count_table:
-                            flag = 1
-                            break
-
-        # generate countables if necessary
-        if flag == 1:
-                self.fset_generate_count_tables(myfset, task, col_list, file_path)
-
-    def fset_two_degree_counts(self, myfset, col_i, col_j, operation, file_path = None):
-        # if two columns are the same just return one_degree_count
-        if col_i == col_j:
-            return self.fset_one_degree_counts(myfset, col_i, file_path)
-
-        if operation == 'per':
-            task = 'both'
-        if operation == 'num':
-            task = 'two'
-
-        self._fset_get_count_tables(myfset, task, [col_i, col_j], file_path)
-
-        col_i_name = myfset.fname_list[col_i]
-        col_j_name = myfset.fname_list[col_j]
-        col_i_ind = myfset.find_list[col_i]
-        col_j_ind = myfset.find_list[col_j]
-
-
-        i_table = self.one_count_table[col_i_name]
-        ij_table = self.two_count_table[(col_i_name, col_j_name)]
-
-        col_i_data_train = myfset.Xtrain[:, col_i_ind]
-        col_i_data_test = myfset.Xtest[:, col_i_ind]
-        col_j_data_train = myfset.Xtrain[:, col_j_ind]
-        col_j_data_test = myfset.Xtest[:, col_j_ind]
-        if operation == 'per':  # 'per': percentage of (elem_i, elem_j) in all (elem_i, col_j)  
-            vfunc = np.vectorize(lambda x,y: float(ij_table[x][y])/i_table[x])
-            col_new_train = vfunc(col_i_data_train, col_j_data_train)
-            col_new_test = vfunc(col_i_data_test, col_j_data_test)
-        elif operation == 'num':    # 'num': number of different kinds of (elem_i, col_j) 
-            vfunc = np.vectorize(lambda x: ij_table[x]['unique'])
-            col_new_train = vfunc(col_i_data_train)
-            col_new_test = vfunc(col_i_data_test)
-
-        return col_new_train, col_new_test
-
-    def fset_one_degree_counts(self, myfset, col_i, file_path = None):
-        self._fset_get_count_tables(myfset, 'one', [col_i], file_path)
-
-        col_i_name = myfset.fname_list[col_i]
-        col_i_ind = myfset.find_list[col_i]
-
-        i_table = self.one_count_table[col_i_name]
-
-        col_i_data_train = myfset.Xtrain[:, col_i_ind]
-        col_i_data_test = myfset.Xtest[:, col_i_ind]
-        vfunc = np.vectorize(lambda x: i_table[x])
-        col_new_train = vfunc(col_i_data_train)
-        col_new_test = vfunc(col_i_data_test)
-
-        return col_new_train, col_new_test
-
 # data preprocessing and generate different set of features
 
 # perform in place combination of rare events
@@ -1069,6 +720,12 @@ class MyFeatureSet(object):
 
     # support using fname or index to fetch item
     def __getitem__(self, input_f_list):
+        if isinstance(input_f_list, slice):
+            start = input_f_list.start
+            stop = input_f_list.stop
+            step = input_f_list.step
+            input_f_list = range(start, stop, step)
+
         if not hasattr(input_f_list, '__iter__'):
             input_f_list = [input_f_list]
 
@@ -1296,6 +953,9 @@ class MyFeatureSet(object):
         fset_numeric_transform(new_fset, input_col_list, operation, standardize)
         return new_fset
 
+    def one_degree_count(self, input_col_list = list(), prefix = 'cnt_'):
+        return fset_one_degree_count(self, input_col_list, prefix)
+
     def merge_multiple_cat_columns(self, input_col_multiple, hasher=None):
         return fset_merge_multiple_cat_columns(self, input_col_multiple, hasher)
 
@@ -1436,6 +1096,12 @@ def concat_feature_set(myfset_list, sparsify = False):
     return newfname_list, newfind_list, newXtrain, newXtest
 
 def fset_onehot_encode(myfset, input_col_list = list(), prefix = 'oh_'):
+    if isinstance(input_col_list, slice):
+        start = input_col_list.start
+        stop = input_col_list.stop
+        step = input_col_list.step
+        input_col_list = range(start, stop, step)
+
     if not hasattr(input_col_list, '__iter__'):
         input_col_list = [input_col_list]
 
@@ -1551,6 +1217,12 @@ def fset_onehot_encode(myfset, input_col_list = list(), prefix = 'oh_'):
     return new_fset
 
 def fset_label_encode(myfset, input_col_list = list(), prefix = 'le_'):
+    if isinstance(input_col_list, slice):
+        start = input_col_list.start
+        stop = input_col_list.stop
+        step = input_col_list.step
+        input_col_list = range(start, stop, step)    
+
     if not hasattr(input_col_list, '__iter__'):
         input_col_list = [input_col_list]
 
@@ -1615,6 +1287,12 @@ def fset_label_encode(myfset, input_col_list = list(), prefix = 'le_'):
 
 
 def fset_combine_rare(myfset, input_col_list = list(), prefix = 'cr_', rare_line = 1):
+    if isinstance(input_col_list, slice):
+        start = input_col_list.start
+        stop = input_col_list.stop
+        step = input_col_list.step
+        input_col_list = range(start, stop, step)
+
     if not hasattr(input_col_list, '__iter__'):
         input_col_list = [input_col_list]
 
@@ -1684,6 +1362,12 @@ def fset_combine_rare(myfset, input_col_list = list(), prefix = 'cr_', rare_line
 
 
 def fset_numeric_transform(myfset, input_col_list = list(), operation='log', standardize=False):
+    if isinstance(input_col_list, slice):
+        start = input_col_list.start
+        stop = input_col_list.stop
+        step = input_col_list.step
+        input_col_list = range(start, stop, step)
+
     if not hasattr(input_col_list, '__iter__'):
         input_col_list = [input_col_list]
 
@@ -1772,6 +1456,82 @@ def fset_numeric_transform(myfset, input_col_list = list(), operation='log', sta
 
         myfset.fname_list[col] = myfset.fname_list[col] + suffix
 
+# create a new feature set with counts
+def fset_one_degree_count(myfset, input_col_list = list(), prefix = 'cnt_'):
+    if isinstance(input_col_list, slice):
+        start = input_col_list.start
+        stop = input_col_list.stop
+        step = input_col_list.step
+        input_col_list = range(start, stop, step)
+
+    if not hasattr(input_col_list, '__iter__'):
+        input_col_list = [input_col_list]
+
+    n_feature = len(myfset.fname_list)
+    if not input_col_list :
+        input_col_list = range(n_feature)
+        check_int = True
+    else:
+        check_int = False
+
+    # modification if we have string
+    if isinstance(input_col_list[0], int):
+        col_list = input_col_list
+    elif isinstance(input_col_list[0], str):
+        col_list = [myfset.fname_list.index(col) for col in input_col_list if col in myfset.fname_list]
+    else:
+        print 'unsupported indexing'
+        return
+
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    n_train = myfset.Xtrain.shape[0]
+    n_test = myfset.Xtest.shape[0]
+
+    new_fset = MyFeatureSet()
+    for col in col_list:
+        if (myfset.find_list[col+1] - myfset.find_list[col] > 1):
+            continue
+
+        ind = myfset.find_list[col]
+        col_type = myfset.ftype_list[col]
+        # print col_data[0]
+        if issubclass(col_type, np.integer) or (not check_int):
+            col_data_train = myfset.Xtrain[:, ind]
+            col_data_test = myfset.Xtest[:, ind]
+            
+            if sparsify:
+                col_data_train = np.squeeze(col_data_train.toarray())
+                col_data_test = np.squeeze(col_data_test.toarray())
+
+            col_data = np.hstack((col_data_train, col_data_test))
+            values, counts = np.unique(col_data, return_counts = True)
+            value_to_count = dict(zip(values, counts))
+            vfunc = np.vectorize(lambda x : value_to_count[x])
+            cnt_col_data = vfunc(col_data)
+            cnt_col_data_train = col_data[:n_train].reshape(n_train, 1).astype(float)
+            cnt_col_data_test = col_data[n_train:].reshape(n_test, 1).astype(float)
+
+            if not new_fset.fname_list:
+                new_fset.Xtrain = cnt_col_data_train
+                new_fset.Xtest = cnt_col_data_test
+                new_fset.find_list.append(0)
+            else:
+                new_fset.Xtrain = np.hstack((new_fset.Xtrain, cnt_col_data_train))
+                new_fset.Xtest = np.hstack((new_fset.Xtest, cnt_col_data_test))
+
+            find_last = new_fset.find_list[-1]
+            new_fset.find_list.append(find_last + 1)
+            new_fset.ftype_list.append(np.float)            
+            new_fset.fname_list.append(prefix + myfset.fname_list[col])
+        else:
+            print 'col:{0:s} not integer, include in list if insist'.format(myfset.fname_list[col])
+
+    return new_fset
+
 
 # selecting extra feature 
 def random_select_feature(myclassifier, bfset, myfset, ytrain, nfolds=5, randstate=SEED, score_func=roc_auc_score):
@@ -1834,6 +1594,12 @@ def random_select_feature(myclassifier, bfset, myfset, ytrain, nfolds=5, randsta
 
 ## fset version of basic operations, can access using index or name
 def fset_show_basic_statics(myfset, col_list = list()):
+    if isinstance(input_col_list, slice):
+        start = input_col_list.start
+        stop = input_col_list.stop
+        step = input_col_list.step
+        input_col_list = range(start, stop, step)    
+
     if not hasattr(col_list, '__iter__'):
         col_list = [col_list]
 
@@ -1948,6 +1714,15 @@ def fset_check_two_columns(myfset, input_col1, input_col2):
     print '{0:s}:'.format(c1_name), num_unique_c1, '{0:s}:'.format(c2_name), num_unique_c2, 'comb:', num_unique_c1_c2
 
 def fset_merge_multiple_cat_columns(myfset, input_col_multiple, hasher=None):
+    if isinstance(input_col_multiple, slice):
+        start = input_col_multiple.start
+        stop = input_col_multiple.stop
+        step = input_col_multiple.step
+        input_col_multiple = range(start, stop, step)
+
+    if not hasattr(input_col_multiple, '__iter__'):
+        input_col_multiple = [input_col_multiple]    
+
     n_col = len(input_col_multiple)
     if n_col <= 1:
         return
@@ -2083,6 +1858,357 @@ def fset_merge_three_cat_columns(myfset, col_triple, hasher=None):
     col_new_data_test = col_new_data[n_train:]
 
     return col_new_data_train, col_new_data_test
+
+# generating countable
+
+class MyCountTable(object):
+    def __init__(self):
+        self.one_count_table = dict()
+        self.two_count_table = dict()
+        self._file_path = None
+
+    def save_count_tables(self, file_path = None):
+        if file_path:
+            self._file_path = file_path
+        elif self._file_path:
+            file_path = self._file_path
+        else:
+            print 'Saving count table file failed: path not specified'
+            return
+
+        directory = os.path.dirname(file_path)
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        with open(file_path, 'wb') as f:
+            pickle.dump([self.one_count_table, self.two_count_table], f, pickle.HIGHEST_PROTOCOL)
+        
+
+    def load_count_tables(self, file_path = None):
+        if file_path:
+            self._file_path = file_path
+        elif self._file_path:
+            file_path = self._file_path
+        else:
+            print 'Loading count table file failed: path not specified'
+            return
+
+        try:
+            with open( file_path, 'rb') as f:
+                self.one_count_table, self.two_count_table = pickle.load(f)
+        except IOError:
+            print 'Loading count table file failed: file not found.'
+        
+
+    # count table operation related with data frame
+    def df_generate_count_tables(self, df, task = 'both', col_list=list(), file_path = None):
+        if not col_list:
+            col_list = list(df.columns.values)
+
+        n_col = len(col_list)
+
+        if task == 'both' or task == 'one':
+            for i in xrange(n_col):
+                col_i = col_list[i]
+                col_i_data = df[col_i].values
+                col_i_set = np.unique(col_i_data)
+
+                if col_i in self.one_count_table:
+                    continue
+                self.one_count_table[col_i] = dict()
+                for i_elem in col_i_set:
+                    sub_i_ind = np.argwhere(col_i_data == i_elem)
+                    self.one_count_table[col_i][i_elem] = sub_i_ind.shape[0]
+
+        if task == 'both' or task == 'two':
+            for i in xrange(n_col):
+                col_i = col_list[i]
+                col_i_data = df[col_i].values
+                col_i_set = np.unique(col_i_data)
+
+                for j in xrange(n_col):
+                    if j == i:
+                        continue
+                    col_j = col_list[j]
+                    col_j_data = df[col_j].values
+
+                    tuple_col_ij = (col_i, col_j)
+                    if tuple_col_ij in self.two_count_table:
+                        continue
+                    self.two_count_table[tuple_col_ij] = dict()
+                    for i_elem in col_i_set:
+                        sub_i_ind = np.argwhere(col_i_data == i_elem)
+                        sub_i_ind = sub_i_ind.reshape(sub_i_ind.shape[0])
+                        sub_j_data = col_j_data[sub_i_ind]
+                        sub_j_set = np.unique(sub_j_data)
+
+                        self.two_count_table[tuple_col_ij][i_elem] = {'unique': len(sub_j_set)}
+                        for j_elem in sub_j_set:
+                            sub_j_ind = np.argwhere(sub_j_data == j_elem)
+                            self.two_count_table[tuple_col_ij][i_elem][j_elem] = sub_j_ind.shape[0]
+
+        self.save_count_tables(file_path)
+
+    # only called when directed from df_two_degree_counts or df_one_degree_counts
+    # helper function to load and generate count table when necessary
+    def _df_get_count_tables(self, df, task = 'both', col_list = list(), file_path = None):
+        if not col_list:
+            col_list = list(df.columns.values)
+
+        if not file_path:
+            file_path = self._file_path
+
+        # first try local count tables
+        flag = 0
+        if task == 'both' or task == 'one':
+            for col in col_list:
+                if col not in self.one_count_table:
+                    flag = 1
+                    break
+        if task == 'both' or task == 'two':
+            for col1 in col_list:
+                for col2 in col_list:
+                    if col1 == col2:
+                        continue
+                    if (col1, col2) not in self.two_count_table:
+                        flag = 1
+                        break
+
+        if flag == 0:
+            return
+
+        # if not good try dumped count tables
+        if file_path:
+            self.load_count_tables(file_path)
+            flag = 0
+            if task == 'both' or task == 'one':
+                for col in col_list:
+                    if col not in self.one_count_table:
+                        flag = 1
+                        break
+            if task == 'both' or task == 'two':
+                for col1 in col_list:
+                    for col2 in col_list:
+                        if col1 == col2:
+                            continue
+                        if (col1, col2) not in self.two_count_table:
+                            flag = 1
+                            break
+
+        # generate countables if necessary
+        if flag == 1:
+                self.df_generate_count_tables(df, task, col_list, file_path)
+
+
+    def df_two_degree_counts(self, df, col_i, col_j, operation, file_path = None):
+        # if two columns are the same just return one_degree_count
+        if col_i == col_j:
+            return self.df_one_degree_counts(df, col_i, file_path)
+
+        if operation == 'per':
+            task = 'both'
+        elif operation == 'num':
+            task = 'two'
+        else:
+            print 'unknown operation'
+            return
+                
+        self._df_get_count_tables(df, task, [col_i, col_j], file_path)
+
+        i_table = one_count_table[col_i]
+        ij_table = two_count_table[(col_i, col_j)]
+
+        col_i_data = df[col_i].values
+        col_j_data = df[col_j].values
+        if operation == 'per':  # 'per': percentage of (elem_i, elem_j) in all (elem_i, col_j)  
+            vfunc = np.vectorize(lambda x,y: float(ij_table[x][y])/i_table[x])
+            col_new = vfunc(col_i_data, col_j_data)
+        elif operation == 'num':    # 'num': number of different kinds of (elem_i, col_j) 
+            vfunc = np.vectorize(lambda x: ij_table[x]['unique'])
+            col_new = vfunc(col_i_data)
+
+        return col_new
+
+    def df_one_degree_counts(self, df, col_i, file_path = None):
+        self._df_get_count_tables(df, 'one', [col_i], file_path)
+
+        i_table = one_count_table[col_i]
+
+        col_i_data = df[col_i].values
+        vfunc = np.vectorize(lambda x: i_table[x])
+        col_new = vfunc(col_i_data)
+
+        return col_new
+
+    # fset  version of countable
+    def fset_generate_count_tables(self, myfset, task = 'both' ,col_list=list(), file_path = None):
+        if not col_list:
+            col_list = range(len(myfset.fname_list))
+
+        if not file_path:
+            file_path = self._file_path 
+
+        # n_col = len(col_list)
+
+        if task == 'both' or task == 'one':
+            for col_i in col_list:
+                col_i_name = myfset.fname_list[col_i]
+                col_i_ind = myfset.find_list[col_i]
+                col_i_data_train = myfset.Xtrain[:, col_i_ind]
+                col_i_data_test = myfset.Xtest[:, col_i_ind]
+                col_i_data = np.hstack((col_i_data_train, col_i_data_test))
+                col_i_set = np.unique(col_i_data)
+
+                if col_i_name in self.one_count_table:
+                    continue
+                self.one_count_table[col_i_name] = dict()
+                for i_elem in col_i_set:
+                    sub_i_ind = np.argwhere(col_i_data == i_elem)
+                    self.one_count_table[col_i_name][i_elem] = sub_i_ind.shape[0]
+
+        if task == 'both' or task == 'two':
+            for col_i in col_list:
+                col_i_name = myfset.fname_list[col_i]
+                col_i_ind = myfset.find_list[col_i]
+                col_i_data_train = myfset.Xtrain[:, col_i_ind]
+                col_i_data_test = myfset.Xtest[:, col_i_ind]
+                col_i_data = np.hstack((col_i_data_train, col_i_data_test))
+                col_i_set = np.unique(col_i_data)
+
+                for col_j in col_list:
+                    if col_j == col_i:
+                        continue
+                    col_j_name = myfset.fname_list[col_j]
+                    col_j_ind = myfset.find_list[col_j]
+                    col_j_data_train = myfset.Xtrain[:, col_j_ind]
+                    col_j_data_test = myfset.Xtest[:, col_j_ind]
+                    col_j_data = np.hstack((col_j_data_train, col_j_data_test))
+
+                    tuple_col_ij = (col_i_name, col_j_name)
+                    if tuple_col_ij in self.two_count_table:
+                        continue
+                    self.two_count_table[tuple_col_ij] = dict()
+                    for i_elem in col_i_set:
+                        sub_i_ind = np.argwhere(col_i_data == i_elem)
+                        sub_i_ind = sub_i_ind.reshape(sub_i_ind.shape[0])
+                        sub_j_data = col_j_data[sub_i_ind]
+                        sub_j_set = np.unique(sub_j_data)
+
+                        self.two_count_table[tuple_col_ij][i_elem] = {'unique': len(sub_j_set)}
+                        for j_elem in sub_j_set:
+                            sub_j_ind = np.argwhere(sub_j_data == j_elem)
+                            self.two_count_table[tuple_col_ij][i_elem][j_elem] = sub_j_ind.shape[0]
+
+        self.save_count_tables(file_path)    
+
+    def _fset_get_count_tables(self, myfset, task = 'both', col_list=list(), file_path = None):
+        if not col_list:
+            col_list = range(len(myfset.fname_list))
+
+        if not file_path:
+            file_path = self._file_path
+
+        # first try local count tables
+        flag = 0
+        if task == 'both' or task == 'one':
+            for col in col_list:
+                col_name = myfset.fname_list[col]
+                if col_name not in self.one_count_table:
+                    flag = 1
+                    break
+
+        if task == 'both' or task == 'two':
+            for col1 in col_list:
+                col1_name = myfset.fname_list[col1]
+                for col2 in col_list:
+                    if col1 == col2:
+                        continue
+                    col2_name = myfset.fname_list[col2]
+                    if (col1_name, col2_name) not in self.two_count_table:
+                        flag = 1
+                        break
+
+        if flag == 0:
+            return
+
+        # if not good try dumped count tables
+        if file_path:
+            self.load_count_tables(file_path)
+            flag = 0
+            if task == 'both' or task == 'one':
+                for col in col_list:
+                    col_name = myfset.fname_list[col]
+                    if col_name not in self.one_count_table:
+                        flag = 1
+                        break
+
+            if task == 'both' or task == 'two':
+                for col1 in col_list:
+                    col1_name = myfset.fname_list[col1]
+                    for col2 in col_list:
+                        if col1 == col2:
+                            continue
+                        col2_name = myfset.fname_list[col2]
+                        if (col1_name, col2_name) not in self.two_count_table:
+                            flag = 1
+                            break
+
+        # generate countables if necessary
+        if flag == 1:
+                self.fset_generate_count_tables(myfset, task, col_list, file_path)
+
+    def fset_two_degree_counts(self, myfset, col_i, col_j, operation, file_path = None):
+        # if two columns are the same just return one_degree_count
+        if col_i == col_j:
+            return self.fset_one_degree_counts(myfset, col_i, file_path)
+
+        if operation == 'per':
+            task = 'both'
+        if operation == 'num':
+            task = 'two'
+
+        self._fset_get_count_tables(myfset, task, [col_i, col_j], file_path)
+
+        col_i_name = myfset.fname_list[col_i]
+        col_j_name = myfset.fname_list[col_j]
+        col_i_ind = myfset.find_list[col_i]
+        col_j_ind = myfset.find_list[col_j]
+
+
+        i_table = self.one_count_table[col_i_name]
+        ij_table = self.two_count_table[(col_i_name, col_j_name)]
+
+        col_i_data_train = myfset.Xtrain[:, col_i_ind]
+        col_i_data_test = myfset.Xtest[:, col_i_ind]
+        col_j_data_train = myfset.Xtrain[:, col_j_ind]
+        col_j_data_test = myfset.Xtest[:, col_j_ind]
+        if operation == 'per':  # 'per': percentage of (elem_i, elem_j) in all (elem_i, col_j)  
+            vfunc = np.vectorize(lambda x,y: float(ij_table[x][y])/i_table[x])
+            col_new_train = vfunc(col_i_data_train, col_j_data_train)
+            col_new_test = vfunc(col_i_data_test, col_j_data_test)
+        elif operation == 'num':    # 'num': number of different kinds of (elem_i, col_j) 
+            vfunc = np.vectorize(lambda x: ij_table[x]['unique'])
+            col_new_train = vfunc(col_i_data_train)
+            col_new_test = vfunc(col_i_data_test)
+
+        return col_new_train, col_new_test
+
+    def fset_one_degree_counts(self, myfset, col_i, file_path = None):
+        self._fset_get_count_tables(myfset, 'one', [col_i], file_path)
+
+        col_i_name = myfset.fname_list[col_i]
+        col_i_ind = myfset.find_list[col_i]
+
+        i_table = self.one_count_table[col_i_name]
+
+        col_i_data_train = myfset.Xtrain[:, col_i_ind]
+        col_i_data_test = myfset.Xtest[:, col_i_ind]
+        vfunc = np.vectorize(lambda x: i_table[x])
+        col_new_train = vfunc(col_i_data_train)
+        col_new_test = vfunc(col_i_data_test)
+
+        return col_new_train, col_new_test 
+
+
 
 
 # def fset_relabel_integer_col(df, col_list = list()):
