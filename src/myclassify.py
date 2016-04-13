@@ -791,7 +791,7 @@ class MyFeatureSet(object):
             return
 
         # if this is an empty feature set, if input fname is not str convert to str
-        if self.Xtrain == None and self.Xtest == None:
+        if not self.fname_list:
             self.Xtrain = f_train
             self.Xtest = f_test
             self.fname_list.append(str(input_f))
@@ -965,6 +965,9 @@ class MyFeatureSet(object):
 
     def check_two_columns(self, input_col1, input_col2):
         fset_check_two_columns(self, input_col1, input_col2)
+
+    def mutual_info(self, input_col1, input_col2):
+        return fset_mutual_info(self, input_col1, input_col2)
 
 
 # generate MyFeatureSet object from a tuple of dataframe, support dropping certain feature
@@ -1593,24 +1596,24 @@ def random_select_feature(myclassifier, bfset, myfset, ytrain, nfolds=5, randsta
 
 
 ## fset version of basic operations, can access using index or name
-def fset_show_basic_statics(myfset, col_list = list()):
+def fset_show_basic_statics(myfset, input_col_list = list()):
     if isinstance(input_col_list, slice):
         start = input_col_list.start
         stop = input_col_list.stop
         step = input_col_list.step
         input_col_list = range(start, stop, step)    
 
-    if not hasattr(col_list, '__iter__'):
-        col_list = [col_list]
+    if not hasattr(input_col_list, '__iter__'):
+        input_col_list = [input_col_list]
 
     n_feature = len(myfset.fname_list)
-    if not col_list:
-        col_list = range(n_feature)
+    if not input_col_list:
+        input_col_list = range(n_feature)
 
-    if isinstance(col_list[0], str):
-        col_list = [myfset.fname_list.index(col) for col in col_list if col in myfset.fname_list]
-    elif isinstance(col_list[0], int):
-        col_list = [col for col in col_list if col in range(n_feature)]
+    if isinstance(input_col_list[0], str):
+        col_list = [myfset.fname_list.index(col) for col in input_col_list if col in myfset.fname_list]
+    elif isinstance(input_col_list[0], int):
+        col_list = [col for col in input_col_list if col in range(n_feature)]
     else:
         print 'indexing not supported'
         return
@@ -1620,6 +1623,9 @@ def fset_show_basic_statics(myfset, col_list = list()):
     else:
         sparsify = False
 
+    n_train = myfset.Xtrain.shape[0]
+    n_test = myfset.Xtest.shape[0]
+    entropy_vfunc = np.vectorize(lambda x : x * np.log(x))
     print 'Showing Statistics\n'
     for col in col_list:
         col_name = myfset.fname_list[col]
@@ -1631,6 +1637,12 @@ def fset_show_basic_statics(myfset, col_list = list()):
         else:
             oh_encoded = False
 
+        train_data = myfset.Xtrain[:, find_low]
+        test_data = myfset.Xtest[:, find_low]
+
+        if sparsify:
+            train_data = np.squeeze(train_data.toarray())
+            test_data = np.squeeze(test_data.toarray())
 
         print 'Col:', col_name, 'type:', col_type
         if oh_encoded:
@@ -1638,7 +1650,6 @@ def fset_show_basic_statics(myfset, col_list = list()):
             print
             continue
 
-        train_data = myfset.Xtrain[:, find_low]
         num_unique = np.unique(train_data).shape[0]
         min_elem = np.amin(train_data)
         max_elem = np.amax(train_data)
@@ -1646,12 +1657,13 @@ def fset_show_basic_statics(myfset, col_list = list()):
         std = np.std(train_data)
         values, counts = np.unique(train_data, return_counts=True)
         ind = np.argmax(counts)
+        prob = counts / n_train
+        entropy = -np.sum(entropy_vfunc(prob))
         print 'train:'
-        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std, \
-            '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind])
+        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std
+        print '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind]), 'entropy:', entropy
 
 
-        test_data = myfset.Xtest[:, find_low]
         num_unique = np.unique(test_data).shape[0]
         min_elem = np.amin(test_data)
         max_elem = np.amax(test_data)
@@ -1659,9 +1671,11 @@ def fset_show_basic_statics(myfset, col_list = list()):
         std = np.std(test_data)
         values, counts = np.unique(test_data, return_counts=True)
         ind = np.argmax(counts)
+        prob = counts / n_test
+        entropy = -np.sum(entropy_vfunc(prob))
         print 'test:'
-        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std, \
-            '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind])
+        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std
+        print '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind]), 'entropy:', entropy
 
         all_data = np.hstack((train_data, test_data))
         num_unique = np.unique(all_data).shape[0]
@@ -1670,9 +1684,12 @@ def fset_show_basic_statics(myfset, col_list = list()):
         mean = np.mean(all_data)
         values, counts = np.unique(all_data, return_counts=True)
         ind = np.argmax(counts)
+        prob = counts / (n_train + n_test)
+        entropy = -np.sum(entropy_vfunc(prob))
         print 'all:'
-        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std, \
-            '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind])
+        print 'unique:', num_unique, 'min:', min_elem, 'max:', max_elem, 'mean:', mean, 'std:', std
+        print '(mode, count):({0:f}, {1:d})'.format(values[ind], counts[ind]), 'entropy:', entropy
+        print
 
 
 # merge two feature in feature set, now only support catergorical feature
@@ -1695,12 +1712,23 @@ def fset_check_two_columns(myfset, input_col1, input_col2):
         c2_ind = myfset.find_list[col2]
         c2_name = myfset.fname_list[col2]
 
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
     print 'Checking {0:s} and {1:s}'.format(c1_name, c2_name)
 
     c1_data_train = myfset.Xtrain[:, c1_ind]
     c1_data_test = myfset.Xtest[:, c1_ind]
     c2_data_train = myfset.Xtrain[:, c2_ind]
     c2_data_test = myfset.Xtest[:, c2_ind]
+
+    if sparsify:
+        c1_data_train = np.squeeze(c1_data_train.toarray())
+        c1_data_test = np.squeeze(c1_data_test.toarray())
+        c2_data_train = np.squeeze(c2_data_train.toarray())
+        c2_data_test = np.squeeze(c2_data_test.toarray())
 
     c1_data = np.hstack((c1_data_train, c1_data_test))
     c2_data = np.hstack((c2_data_train, c2_data_test))
@@ -1712,6 +1740,87 @@ def fset_check_two_columns(myfset, input_col1, input_col2):
     num_unique_c2 = np.unique(c2_data).shape[0]
 
     print '{0:s}:'.format(c1_name), num_unique_c1, '{0:s}:'.format(c2_name), num_unique_c2, 'comb:', num_unique_c1_c2
+
+# merge two feature in feature set, now only support catergorical feature
+def fset_mutual_info(myfset, input_col1, input_col2):
+    if isinstance(input_col1, int):
+        col1 = input_col1
+        c1_ind = myfset.find_list[col1]
+        c1_name = myfset.fname_list[col1]
+    elif isinstance(input_col1, str):
+        col1 = myfset.fname_list.index(input_col1)
+        c1_ind = myfset.find_list[col1]
+        c1_name = myfset.fname_list[col1]
+
+    if isinstance(input_col2, int):
+        col2 = input_col2
+        c2_ind = myfset.find_list[col2]
+        c2_name = myfset.fname_list[col2]
+    elif isinstance(input_col2, str):
+        col2 = myfset.fname_list.index(input_col2)
+        c2_ind = myfset.find_list[col2]
+        c2_name = myfset.fname_list[col2]
+
+    if scipy.sparse.issparse(myfset.Xtrain):
+        sparsify = True
+    else:
+        sparsify = False
+
+    print 'Checking {0:s} and {1:s}'.format(c1_name, c2_name)
+
+    n_train = myfset.Xtrain.shape[0]
+    n_test = myfset.Xtest.shape[0]
+
+    c1_data_train = myfset.Xtrain[:, c1_ind]
+    c1_data_test = myfset.Xtest[:, c1_ind]
+    c2_data_train = myfset.Xtrain[:, c2_ind]
+    c2_data_test = myfset.Xtest[:, c2_ind]
+
+    if sparsify:
+        c1_data_train = np.squeeze(c1_data_train.toarray())
+        c1_data_test = np.squeeze(c1_data_test.toarray())
+        c2_data_train = np.squeeze(c2_data_train.toarray())
+        c2_data_test = np.squeeze(c2_data_test.toarray())
+
+    c1_data = np.hstack((c1_data_train, c1_data_test))
+    c2_data = np.hstack((c2_data_train, c2_data_test))
+
+    c1_count = np.unique(c1_data, return_counts = True)[1]
+    c2_count = np.unique(c2_data, return_counts = True)[1]
+
+    c1_prob = c1_count / (n_train + n_test)
+    c2_prob = c2_count / (n_train + n_test)
+
+    c1_c2_tuple = zip(c1_data, c2_data)
+    c1_c2_set = set(c1_c2_tuple)
+
+    c1_c2_tuple_dict = dict()
+    i = 0
+    for c1_c2 in c1_c2_set:
+        c1_c2_tuple_dict[c1_c2] = i
+        i+=1
+
+    c1_c2_data = np.zeros(n_train + n_test, np.int)
+    for i in xrange(n_train + n_test):
+        c1_c2_data[i] = c1_c2_tuple_dict[c1_c2_tuple[i]]
+
+    c1_c2_count = np.unique(c1_c2_data, return_counts = True)[1]
+    c1_c2_prob = c1_c2_count / (n_train + n_test)
+
+    entropy_vfunc = np.vectorize(lambda x : x * np.log(x))
+
+    c1_entropy = -np.sum(entropy_vfunc(c1_prob))
+    c2_entropy = -np.sum(entropy_vfunc(c2_prob))
+    c1_c2_entropy = -np.sum(entropy_vfunc(c1_c2_prob))
+
+    m_info = c1_entropy + c2_entropy - c1_c2_entropy
+
+    print '{0:s}:'.format(c1_name), c1_entropy, '{0:s}:'.format(c2_name), c2_entropy
+    print 'comb:', c1_c2_entropy, 'mutual_info:', m_info, 'ratio:', m_info / (c1_entropy + c2_entropy)
+    print 
+
+    return m_info, m_info / (c1_entropy + c2_entropy)
+
 
 def fset_merge_multiple_cat_columns(myfset, input_col_multiple, hasher=None):
     if isinstance(input_col_multiple, slice):
